@@ -129,10 +129,14 @@ describe('api.ts', () => {
   it('exports CSV with BOM, proper quoting, optional nulls and revokes blob URL', () => {
     vi.useFakeTimers()
     const clickSpy = vi.fn()
+    const createdLinks: HTMLAnchorElement[] = []
     const createEl = document.createElement.bind(document)
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       const el = createEl(tag)
-      if (tag === 'a') el.click = clickSpy
+      if (tag === 'a') {
+        el.click = clickSpy
+        createdLinks.push(el as HTMLAnchorElement)
+      }
       return el
     })
     const createUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-csv')
@@ -164,19 +168,30 @@ describe('api.ts', () => {
     ]
 
     const csv = exportSetCsv(tracks)
-    expect(csv.startsWith('\uFEFF')).toBe(true)
-    expect(csv).toContain('"Dark ""Pulse"""')
-    expect(csv).toContain('"138.00";"8A"')
-    expect(csv).toContain('"";"";"Ambient";"0";"";""')
-    expect(createUrlSpy).toHaveBeenCalledTimes(1)
+    expect(csv).toBe(
+      '\uFEFF' +
+        [
+          'Nr;Titel;Interpret;BPM;Camelot;Genre;Rating;Jahr;Dauer (s)',
+          '"1";"Dark ""Pulse""";"Klang";"138.00";"8A";"Techno";"5";"2024";"320"',
+          '"2";"Ambient Intro";"Nova";"";"";"Ambient";"0";"";""',
+        ].join('\r\n'),
+    )
+    expect((createUrlSpy.mock.calls[0][0] as Blob).type).toBe('text/csv;charset=utf-8')
+    expect(createdLinks[0].download).toBe('airdox-setliste.csv')
+    expect(createdLinks[0].href).toBe('blob:test-csv')
     expect(clickSpy).toHaveBeenCalledTimes(1)
 
-    vi.advanceTimersByTime(2000)
+    vi.advanceTimersByTime(1999)
+    expect(revokeUrlSpy).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
     expect(revokeUrlSpy).toHaveBeenCalledWith('blob:test-csv')
+    createSpy.mockRestore()
+    createUrlSpy.mockRestore()
+    revokeUrlSpy.mockRestore()
     vi.useRealTimers()
   })
 
-  it('covers rekordboxTransport, revealFile, exportM3u8Playlist and exportRekordboxXml at 100%', async () => {
+  it('covers rekordboxTransport, revealFile, exportM3u8Playlist and exportRekordboxXml strictly', async () => {
     const reqMock = vi.fn().mockResolvedValue({
       ok: true,
       reason: 'sent',
@@ -187,7 +202,7 @@ describe('api.ts', () => {
       copied: true,
       message: 'An Deck 1 gesendet',
     })
-    const revealMock = vi.fn().mockResolvedValue(true)
+    const revealMock = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     window.cuepoint = {
       request: reqMock,
       choose: vi.fn(),
@@ -197,7 +212,16 @@ describe('api.ts', () => {
 
     await expect(
       rekordboxTransport({ id: '1', action: 'deck1', query: 'Pulse Klang', path: 'E:/Music/pulse.mp3' }),
-    ).resolves.toMatchObject({ ok: true, deck: 1 })
+    ).resolves.toEqual({
+      ok: true,
+      reason: 'sent',
+      action: 'deck1',
+      deck: 1,
+      query: 'Pulse Klang',
+      path: 'E:/Music/pulse.mp3',
+      copied: true,
+      message: 'An Deck 1 gesendet',
+    })
     expect(reqMock).toHaveBeenCalledWith('rekordboxTransport', {
       id: '1',
       action: 'deck1',
@@ -207,6 +231,8 @@ describe('api.ts', () => {
 
     await expect(revealFile('E:/Music/pulse.mp3')).resolves.toBe(true)
     expect(revealMock).toHaveBeenCalledWith('E:/Music/pulse.mp3')
+    await expect(revealFile('E:/Music/missing.mp3')).resolves.toBe(false)
+    expect(revealMock).toHaveBeenCalledWith('E:/Music/missing.mp3')
 
     // Missing revealFile fallback
     window.cuepoint = {
@@ -216,24 +242,28 @@ describe('api.ts', () => {
     }
     await expect(revealFile('E:/Music/pulse.mp3')).resolves.toBe(false)
 
-    // M3U8 & Rekordbox XML exports
+    // M3U8 & Rekordbox XML exports with strict exact assertions
     vi.useFakeTimers()
     const clickSpy = vi.fn()
+    const createdLinks: HTMLAnchorElement[] = []
     const createEl = document.createElement.bind(document)
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       const el = createEl(tag)
-      if (tag === 'a') el.click = clickSpy
+      if (tag === 'a') {
+        el.click = clickSpy
+        createdLinks.push(el as HTMLAnchorElement)
+      }
       return el
     })
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-export')
+    const createUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-export')
     const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
 
     const tracks: Track[] = [
       {
         id: '1',
-        title: 'Dark & <Pulse>',
+        title: "Dark & <Pulse> 'Mix'",
         artist: 'Klang "A"',
-        genre: 'Techno',
+        genre: 'Techno & Acid',
         bpm: 138,
         key: '8A',
         rating: 5,
@@ -255,41 +285,76 @@ describe('api.ts', () => {
       },
       {
         id: '3',
-        title: 'No Path Track',
+        title: 'Zero Seconds',
         artist: 'Nova',
         genre: 'House',
-        bpm: 124,
+        bpm: 124.5,
         key: '6A',
         rating: 3,
-        seconds: 200,
+        seconds: 0,
         year: 2022,
       },
     ]
 
     const m3uDefault = exportM3u8Playlist(tracks)
-    expect(m3uDefault).toContain('#EXTM3U')
-    expect(m3uDefault).toContain('#EXTINF:320,Klang "A" - Dark & <Pulse>')
-    expect(m3uDefault).toContain('E:\\Music\\set & mix.mp3')
-    expect(m3uDefault).toContain('#EXTINF:-1,Unbekannt - Ohne Titel')
-    expect(m3uDefault).toContain('Nova - No Path Track')
+    expect(m3uDefault).toBe(
+      [
+        '#EXTM3U',
+        '#EXTINF:320,Klang "A" - Dark & <Pulse> \'Mix\'',
+        'E:\\Music\\set & mix.mp3',
+        '#EXTINF:-1,Unbekannt - Ohne Titel',
+        '/Users/dj/ambient track.wav',
+        '#EXTINF:0,Nova - Zero Seconds',
+        'Nova - Zero Seconds',
+      ].join('\r\n'),
+    )
+    expect((createUrlSpy.mock.calls[0][0] as Blob).type).toBe('audio/x-mpegurl;charset=utf-8')
+    expect(createdLinks[0].download).toBe('airdox-setliste.m3u8')
+    expect(createdLinks[0].href).toBe('blob:test-export')
 
     const m3uCustom = exportM3u8Playlist(tracks, 'custom.m3u8')
-    expect(m3uCustom).toContain('#EXTM3U')
+    expect(m3uCustom).toBe(m3uDefault)
+    expect(createdLinks[1].download).toBe('custom.m3u8')
 
     const xmlDefault = exportRekordboxXml(tracks)
-    expect(xmlDefault).toContain('<DJ_PLAYLISTS Version="1.0.0">')
-    expect(xmlDefault).toContain('<COLLECTION Entries="3">')
-    expect(xmlDefault).toContain('Name="Dark &amp; &lt;Pulse&gt;" Artist="Klang &quot;A&quot;"')
-    expect(xmlDefault).toContain('Location="file://localhost/E:/Music/set%20&amp;%20mix.mp3"')
-    expect(xmlDefault).toContain('Location="file://localhost/Users/dj/ambient%20track.wav"')
-    expect(xmlDefault).toContain('<NODE Name="airdox Set" Type="1" KeyType="0" Entries="3">')
+    expect(xmlDefault).toBe(
+      [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<DJ_PLAYLISTS Version="1.0.0">',
+        '  <PRODUCT Name="airdox Library" Version="1.1.0" Company="airdox"/>',
+        '  <COLLECTION Entries="3">',
+        '    <TRACK TrackID="1" Name="Dark &amp; &lt;Pulse&gt; &apos;Mix&apos;" Artist="Klang &quot;A&quot;" Genre="Techno &amp; Acid" TotalTime="320" Year="2024" AverageBpm="138.00" Tonality="8A" Location="file://localhost/E:/Music/set%20&amp;%20mix.mp3"/>',
+        '    <TRACK TrackID="2" Name="" Artist="" Genre="Ambient" TotalTime="0" Year="" AverageBpm="" Tonality="" Location="file://localhost/Users/dj/ambient%20track.wav"/>',
+        '    <TRACK TrackID="3" Name="Zero Seconds" Artist="Nova" Genre="House" TotalTime="0" Year="2022" AverageBpm="124.50" Tonality="6A"/>',
+        '  </COLLECTION>',
+        '  <PLAYLISTS>',
+        '    <NODE Type="0" Name="ROOT" Count="1">',
+        '      <NODE Name="airdox Set" Type="1" KeyType="0" Entries="3">',
+        '        <TRACK Key="1"/>',
+        '        <TRACK Key="2"/>',
+        '        <TRACK Key="3"/>',
+        '      </NODE>',
+        '    </NODE>',
+        '  </PLAYLISTS>',
+        '</DJ_PLAYLISTS>',
+      ].join('\n'),
+    )
+    expect((createUrlSpy.mock.calls[2][0] as Blob).type).toBe('application/xml;charset=utf-8')
+    expect(createdLinks[2].download).toBe('rekordbox-import.xml')
+    expect(createdLinks[2].href).toBe('blob:test-export')
 
     const xmlCustom = exportRekordboxXml(tracks, "Peak & 'Set'", 'peak.xml')
-    expect(xmlCustom).toContain('Name="Peak &amp; &apos;Set&apos;"')
+    expect(xmlCustom).toContain('      <NODE Name="Peak &amp; &apos;Set&apos;" Type="1" KeyType="0" Entries="3">')
+    expect(createdLinks[3].download).toBe('peak.xml')
     expect(clickSpy).toHaveBeenCalledTimes(4)
 
-    vi.advanceTimersByTime(2000)
+    vi.advanceTimersByTime(1999)
+    expect(revokeSpy).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
     expect(revokeSpy).toHaveBeenCalledWith('blob:test-export')
+    createSpy.mockRestore()
+    createUrlSpy.mockRestore()
+    revokeSpy.mockRestore()
     vi.useRealTimers()
   })
 })

@@ -124,7 +124,7 @@ describe('camelot-wheel.tsx', () => {
       <CamelotWheel
         referenceKey="8A"
         pinned={false}
-        selectedKeys={['8A', '9A']}
+        selectedKeys={['8A', '9A', '4B']}
         autoFollow
         includeCurrent={false}
         onToggleKey={onToggleKey}
@@ -136,10 +136,56 @@ describe('camelot-wheel.tsx', () => {
 
     expect(container.querySelectorAll('g[data-wheel-key]')).toHaveLength(24)
     expect(screen.getByText('Live-Referenz')).toBeInTheDocument()
-    expect(screen.getByText('Aktive Keys: 8A, 9A')).toBeInTheDocument()
+    expect(screen.getByText('8A', { selector: 'text.wheelcentertext' })).toBeInTheDocument()
+    expect(screen.getByText('Aktive Keys: 8A, 9A, 4B')).toBeInTheDocument()
+
+    // Segment <title>, aria-label, path styling and class assertions across all 4 states
+    const seg8A = container.querySelector('g[data-wheel-key="8A"]')!
+    expect(seg8A).toHaveAttribute('aria-label', '8A, aktuell, harmonisch kompatibel, als Filter gewählt')
+    expect(seg8A.querySelector('title')?.textContent).toBe(
+      '8A · Aktuelle Referenz · Aktiv im Filter – Klick: nur diesen Key · Strg+Klick: mehrfach wählen',
+    )
+    expect(seg8A.querySelector('path')).toHaveAttribute('fill', '#276eb8')
+    expect(seg8A.querySelector('path')).toHaveAttribute('stroke', '#99c7ff')
+    expect(seg8A.querySelector('path')).toHaveAttribute('stroke-width', '2')
+    expect(seg8A.querySelector('text')).toHaveClass('activekey')
+
+    const seg7A = container.querySelector('g[data-wheel-key="7A"]')!
+    expect(seg7A).toHaveAttribute('aria-label', '7A, harmonisch kompatibel')
+    expect(seg7A.querySelector('title')?.textContent).toBe(
+      '7A · Harmonisch kompatibel – Klick: nur diesen Key · Strg+Klick: mehrfach wählen',
+    )
+    expect(seg7A.querySelector('path')).toHaveAttribute('fill', '#344b60')
+    expect(seg7A.querySelector('path')).toHaveAttribute('stroke', '#4a535d')
+    expect(seg7A.querySelector('path')).toHaveAttribute('stroke-width', '1')
+    expect(seg7A.querySelector('text')).not.toHaveClass('activekey')
+
+    const seg9A = container.querySelector('g[data-wheel-key="9A"]')!
+    expect(seg9A).toHaveAttribute('aria-label', '9A, harmonisch kompatibel, als Filter gewählt')
+    expect(seg9A.querySelector('title')?.textContent).toBe(
+      '9A · Harmonisch kompatibel · Aktiv im Filter – Klick: nur diesen Key · Strg+Klick: mehrfach wählen',
+    )
+    expect(seg9A.querySelector('path')).toHaveAttribute('fill', '#315d83')
+    expect(seg9A.querySelector('path')).toHaveAttribute('stroke', '#618cb5')
+
+    const seg4B = container.querySelector('g[data-wheel-key="4B"]')!
+    expect(seg4B).toHaveAttribute('aria-label', '4B, als Filter gewählt')
+    expect(seg4B.querySelector('title')?.textContent).toBe(
+      '4B · Aktiv im Filter – Klick: nur diesen Key · Strg+Klick: mehrfach wählen',
+    )
+
+    const seg3B = container.querySelector('g[data-wheel-key="3B"]')!
+    expect(seg3B).toHaveAttribute('aria-label', '3B')
+    expect(seg3B.querySelector('title')?.textContent).toBe(
+      '3B – Klick: nur diesen Key · Strg+Klick: mehrfach wählen',
+    )
+    expect(seg3B.querySelector('path')).toHaveAttribute('fill', '#222831')
+    expect(seg3B.querySelector('path')).toHaveAttribute('stroke', '#4a535d')
+
+    const seg3A = container.querySelector('g[data-wheel-key="3A"]')!
+    expect(seg3A.querySelector('path')).toHaveAttribute('fill', '#272e37')
 
     // Segment click (non-additive vs Ctrl-additive)
-    const seg8A = container.querySelector('g[data-wheel-key="8A"]')!
     fireEvent.click(seg8A, { ctrlKey: false })
     expect(onToggleKey).toHaveBeenLastCalledWith('8A', false)
 
@@ -156,19 +202,53 @@ describe('camelot-wheel.tsx', () => {
     fireEvent.keyDown(seg8A, { key: 'Tab' })
     expect(onToggleKey).toHaveBeenCalledTimes(4)
 
-    // Quick chip click
+    // Quick chips: title & active/current classes + click
+    const chip8A = container.querySelector('.keychip[data-key="8A"]')!
+    expect(chip8A).toHaveClass('active', 'current')
+    expect(chip8A).toHaveAttribute(
+      'title',
+      '8A (aktuelle Tonart) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
+    )
+    const chip7A = container.querySelector('.keychip[data-key="7A"]')!
+    expect(chip7A).not.toHaveClass('active')
+    expect(chip7A).not.toHaveClass('current')
+    expect(chip7A).toHaveAttribute(
+      'title',
+      '7A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
+    )
     const chip9A = container.querySelector('.keychip[data-key="9A"]')!
+    expect(chip9A).toHaveClass('active')
+    expect(chip9A).not.toHaveClass('current')
+    expect(chip9A).toHaveAttribute(
+      'title',
+      '9A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
+    )
     fireEvent.click(chip9A, { ctrlKey: false })
     expect(onToggleKey).toHaveBeenLastCalledWith('9A', false)
 
-    // All harmonic button & checkboxes
-    fireEvent.click(screen.getByRole('button', { name: 'Alle harmonisch passenden Keys wählen' }))
+    // All harmonic button & checkboxes + their exact tooltips
+    const allHarmonicBtn = screen.getByRole('button', { name: 'Alle harmonisch passenden Keys wählen' })
+    expect(allHarmonicBtn).toHaveAttribute(
+      'title',
+      'Wählt alle 4 harmonisch passenden Camelot-Keys (-1, Referenz, +1 sowie A/B-Wechsel)',
+    )
+    fireEvent.click(allHarmonicBtn)
     expect(onSelectAllHarmonic).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(container.querySelector('#autoFollow')!)
+    const autoFollowInput = container.querySelector('#autoFollow')!
+    expect(autoFollowInput.closest('label.checkrow')).toHaveAttribute(
+      'title',
+      'Passt die gewählten kompatiblen Keys automatisch an, sobald ein neuer Track auf dem aktiven Deck läuft',
+    )
+    fireEvent.click(autoFollowInput)
     expect(onAutoFollowChange).toHaveBeenCalledWith(false)
 
-    fireEvent.click(container.querySelector('#includeCurrent')!)
+    const includeCurrentInput = container.querySelector('#includeCurrent')!
+    expect(includeCurrentInput.closest('label.checkrow')).toHaveAttribute(
+      'title',
+      'Bezieht die exakt gleiche Tonart des Referenztracks zusätzlich zu den Nachbar-Keys ein',
+    )
+    fireEvent.click(includeCurrentInput)
     expect(onIncludeCurrentChange).toHaveBeenCalledWith(true)
 
     // Pinned & empty selectedKeys state

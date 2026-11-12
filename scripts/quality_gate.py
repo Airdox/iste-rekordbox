@@ -79,6 +79,13 @@ REQUIREMENT_MATRIX = [
         "src/main.tsx, src/track-table.tsx, src/live-view.tsx, src/filter-view.tsx, src/set-view.tsx",
         "tests/frontend/views-table.test.tsx, tests/frontend/app.test.tsx, tests/electron-smoke.cjs",
     ),
+    (
+        "REQ-07",
+        "Rekordbox Transport, Reveal & M3U8/XML Playlist Handover",
+        "backend/rekordbox_live.py, backend/main.py, electron/main.cjs, src/api.ts",
+        "tests/test_rekordbox_playback.py, tests/electron/main.test.mjs, "
+        "tests/frontend/app.test.tsx, tests/electron-smoke.cjs",
+    ),
 ]
 
 

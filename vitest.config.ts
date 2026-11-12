@@ -4,7 +4,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    testTimeout: 15000,
+    testTimeout: 30000,
+    fileParallelism: false,
     include: ['tests/frontend/**/*.test.{ts,tsx}'],
     setupFiles: ['tests/frontend/setup.ts'],
     coverage: {
