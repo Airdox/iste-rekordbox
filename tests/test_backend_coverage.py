@@ -904,3 +904,222 @@ def test_main_fader_disambiguation_hysteresis_and_ipc(tmp_path, monkeypatch):
     assert lines[0]["id"] == 1 and lines[0]["result"]["kind"] == "Demo"
     assert lines[1]["id"] == 2 and "error" in lines[1]
     core.library.close()
+
+
+# ---------------------------------------------------------------------------
+# 8. Complete AST Mutation Killer Test Suite
+# ---------------------------------------------------------------------------
+
+def test_backend_ast_mutation_killer_suite():
+    # --- 1. keys.py mutants ---
+    # keys.py:26:1 (camelot remove unary not on if not classical)
+    assert keys.camelot("D MAJOR") == "10B"
+    assert keys.camelot("C MINOR") == "5A"
+    assert keys.camelot("E DUR") == "12B"
+    assert keys.camelot("A MOLL") == "8A"
+    assert keys.camelot("1m") == "8A"
+    assert keys.camelot("1d") == "8B"
+    assert keys.camelot("12m") == "7A"
+    assert keys.camelot("12d") == "7B"
+    assert keys.camelot("C M") == "8B"
+    assert keys.camelot("C m") == "5A"
+    assert keys.camelot("C") == "8B"
+    assert keys.camelot("") is None
+    assert keys.camelot("INVALID") is None
+    # pitch_class
+    assert keys.pitch_class("F#") == 6
+    assert keys.pitch_class("Gb") == 6
+    assert keys.pitch_class("C#") == 1
+    assert keys.pitch_class("Db") == 1
+    # compatible
+    assert keys.compatible("") == {}
+    assert keys.compatible(None) == {}
+    assert keys.compatible("8A") == {
+        "8A": "Gleiche Tonart",
+        "8B": "Paralleltonart",
+        "7A": "Camelot −1",
+        "9A": "Camelot +1",
+    }
+    assert keys.compatible("1A") == {
+        "1A": "Gleiche Tonart",
+        "1B": "Paralleltonart",
+        "12A": "Camelot −1",
+        "2A": "Camelot +1",
+    }
+    assert keys.compatible("12B") == {
+        "12B": "Gleiche Tonart",
+        "12A": "Paralleltonart",
+        "11B": "Camelot −1",
+        "1B": "Camelot +1",
+    }
+
+    # --- 2. library.py mutants ---
+    # _key_rank
+    assert lib_mod._key_rank("1A") == 2
+    assert lib_mod._key_rank("1B") == 3
+    assert lib_mod._key_rank("8A") == 16
+    assert lib_mod._key_rank("8B") == 17
+    assert lib_mod._key_rank("12A") == 24
+    assert lib_mod._key_rank("12B") == 25
+    assert lib_mod._key_rank("") is None
+    assert lib_mod._key_rank(None) is None
+
+    # _parse_range
+    assert lib_mod._parse_range("120..140") == (120.0, 140.0)
+    assert lib_mod._parse_range("140..120") == (120.0, 140.0)
+    assert lib_mod._parse_range("120..120") == (120.0, 120.0)
+    assert lib_mod._parse_range("120 bis 140") == (120.0, 140.0)
+    assert lib_mod._parse_range("120 - 140") == (120.0, 140.0)
+    assert lib_mod._parse_range("120;140") == (120.0, 140.0)
+    assert lib_mod._parse_range("120,140") == (120.0, 140.0)
+    assert lib_mod._parse_range("120") is None
+    assert lib_mod._parse_range("120..abc") is None
+    assert lib_mod._parse_range("abc..120") is None
+
+    # Library test instance
+    sample = [
+        {"id": "1", "title": "Alpha", "artist": "Klara", "genre": "Techno", "bpm": 130.0,
+         "key_raw": "8A", "rating": 5, "year": 2024, "seconds": 300, "plays": 2},
+        {"id": "2", "title": "Beta", "artist": "Mika", "genre": "House", "bpm": 128.0,
+         "key_raw": "9A", "rating": 4, "year": 2022, "seconds": 250, "plays": 5},
+        {"id": "3", "title": "Gamma", "artist": "Nova", "genre": "Acid", "bpm": 135.0,
+         "key_raw": "8A", "rating": 3, "year": 2020, "seconds": 280, "plays": 1},
+        {"id": "4", "title": "", "artist": "", "genre": "", "bpm": None,
+         "key_raw": "", "rating": 0, "year": None, "seconds": None, "plays": None},
+    ]
+    lib = lib_mod.Library(None, "Master", sample)
+    try:
+        # recommendations delta & relation & sorting
+        recs = lib.recommendations(128.0, "8A", "2", 10.0, False)
+        assert len(recs) == 2
+        assert recs[0]["id"] == "1"
+        assert recs[0]["delta"] == 2.0
+        assert recs[0]["relation"] == "Gleiche Tonart"
+        assert recs[1]["id"] == "3"
+        assert recs[1]["delta"] == 7.0
+        assert recs[1]["relation"] == "Gleiche Tonart"
+
+        # recommendations sorting on same delta: same key precedes different key
+        eq_sample = [
+            {"id": "a", "title": "A", "artist": "X", "genre": "T", "bpm": 130.0, "key_raw": "8A", "rating": 3},
+            {"id": "b", "title": "B", "artist": "Y", "genre": "T", "bpm": 130.0, "key_raw": "9A", "rating": 3},
+        ]
+        eq_lib = lib_mod.Library(None, "Master", eq_sample)
+        try:
+            eq_recs = eq_lib.recommendations(130.0, "8A", None, 5.0, False)
+            assert [r["id"] for r in eq_recs] == ["a", "b"]
+        finally:
+            eq_lib.close()
+
+        # recommendations empty checks
+        assert lib.recommendations(None, "8A", None, 5.0, True) == []
+        assert lib.recommendations(None, "8A", None, 5.0, False) == []
+        assert lib.recommendations(130.0, None, None, 5.0, True) == []
+        assert len(lib.recommendations(130.0, None, None, 5.0, False)) > 0
+        assert len(lib.recommendations(130.0, "8A", None, 5.0, True)) > 0
+
+        # recommendations tolerance bounds: bpm - tolerance and bpm + tolerance
+        narrow_recs = lib.recommendations(129.0, "8A", None, 1.5, False)
+        assert [r["id"] for r in narrow_recs] == ["1", "2"]
+
+        # _apply_rule: contains on key column
+        assert [r["id"] for r in lib.query({"rules": [{"id": "key", "op": "contains", "value": "8a"}]})["rows"]] == ["1", "3"]
+        assert lib.query({"rules": [{"id": "key", "op": "contains", "value": "nonexistent"}]})["rows"] == []
+
+        # _apply_rule: key range with one invalid part
+        assert lib.query({"rules": [{"id": "key", "op": "range", "value": "8A..INVALID"}]})["rows"] == []
+        assert lib.query({"rules": [{"id": "key", "op": "range", "value": "INVALID..8A"}]})["rows"] == []
+
+        # _apply_rule: key comparisons & asc < 26 boundary (null key track 4 must be excluded)
+        assert {r["id"] for r in lib.query({"rules": [{"id": "key", "op": "gte", "value": "8A"}]})["rows"]} == {"1", "2", "3"}
+        assert lib.query({"rules": [{"id": "key", "op": "gt", "value": "12B"}]})["rows"] == []
+        assert lib.query({"rules": [{"id": "key", "op": "gte", "value": "12B"}]})["rows"] == []
+
+        # _apply_rule: title string boundary operations (gte, gt, lte, lt)
+        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "gte", "value": "Beta"}]})["rows"]} == {"2", "3"}
+        assert [r["id"] for r in lib.query({"rules": [{"id": "title", "op": "gt", "value": "Beta"}]})["rows"]] == ["3"]
+        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "lte", "value": "Beta"}]})["rows"]} == {"1", "2"}
+        assert [r["id"] for r in lib.query({"rules": [{"id": "title", "op": "lt", "value": "Beta"}]})["rows"]] == ["1"]
+
+        # _apply_rule: id comparisons (gte, gt, lte, lt)
+        assert {r["id"] for r in lib.query({"rules": [{"id": "id", "op": "gte", "value": "2"}]})["rows"]} == {"2", "3", "4"}
+        assert {r["id"] for r in lib.query({"rules": [{"id": "id", "op": "gt", "value": "2"}]})["rows"]} == {"3", "4"}
+        assert {r["id"] for r in lib.query({"rules": [{"id": "id", "op": "lte", "value": "2"}]})["rows"]} == {"1", "2"}
+        assert [r["id"] for r in lib.query({"rules": [{"id": "id", "op": "lt", "value": "2"}]})["rows"]] == ["1"]
+
+        # _apply_rule: text range reverse and equal
+        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "range", "value": "Gamma..Alpha"}]})["rows"]} == {"1", "2", "3"}
+        assert [r["id"] for r in lib.query({"rules": [{"id": "title", "op": "range", "value": "Beta..Beta"}]})["rows"]] == ["2"]
+
+        # _sort_positions: single stage id asc / desc
+        assert [r["id"] for r in lib.query({"sorts": [{"id": "id", "desc": True}]})["rows"]] == ["4", "3", "2", "1"]
+        assert [r["id"] for r in lib.query({"sorts": [{"id": "id", "desc": False}]})["rows"]] == ["1", "2", "3", "4"]
+        # single stage non-id
+        assert [r["id"] for r in lib.query({"sorts": [{"id": "bpm", "desc": False}]})["rows"]][:3] == ["2", "1", "3"]
+        # multi-stage with id in used
+        assert [r["id"] for r in lib.query({"sorts": [{"id": "bpm", "desc": True}, {"id": "id", "desc": False}]})["rows"]][:3] == ["3", "1", "2"]
+        assert [r["id"] for r in lib.query({"sorts": [{"id": "id", "desc": False}, {"id": "bpm", "desc": True}]})["rows"]] == ["1", "2", "3", "4"]
+    finally:
+        lib.close()
+
+    # --- 3. rekordbox_live.py mutants ---
+    # _crossfader_gain
+    assert rb_live._crossfader_gain(None, 1, 2) == 1.0
+    assert rb_live._crossfader_gain(0.0, 1, 2) == 1.0
+    assert rb_live._crossfader_gain(0.25, 1, 2) == 1.0
+    assert rb_live._crossfader_gain(0.5, 1, 2) == 1.0
+    assert rb_live._crossfader_gain(0.75, 1, 2) == 0.5
+    assert rb_live._crossfader_gain(1.0, 1, 2) == 0.0
+    assert rb_live._crossfader_gain(0.0, 2, 2) == 0.0
+    assert rb_live._crossfader_gain(0.25, 2, 2) == 0.5
+    assert rb_live._crossfader_gain(0.5, 2, 2) == 1.0
+    assert rb_live._crossfader_gain(0.75, 2, 2) == 1.0
+    assert rb_live._crossfader_gain(1.0, 2, 2) == 1.0
+    assert rb_live._crossfader_gain(0.0, 1, 4) == 1.0
+
+    # combine_fader_levels
+    assert rb_live.combine_fader_levels(None, None, 1, 2) is None
+    assert rb_live.combine_fader_levels(0.8, None, 1, 2) == 0.8
+    assert rb_live.combine_fader_levels(0.8, 0.0, 1, 2) == 0.8
+    assert rb_live.combine_fader_levels(0.8, 0.0, 2, 2) == 0.0
+
+    # _progress
+    last = ("Track A", "Artist B", 10.0, 1.0)
+    assert rb_live._progress(None, "Track A", "Artist B", 10.5, 1.5) is False
+    assert rb_live._progress(last, "Diff", "Artist B", 10.5, 1.5) is False
+    assert rb_live._progress(last, "Track A", "Diff", 10.5, 1.5) is False
+    assert rb_live._progress(last, "Track A", "Artist B", 10.5, 1.5) is True
+    assert rb_live._progress(last, "Track A", "Artist B", 10.02, 1.5) is False
+    assert rb_live._progress(last, "Track A", "Artist B", 15.0, 1.5) is False
+    assert rb_live._progress(last, "Track A", "Artist B", 10.5, 0.5) is False
+
+    # --- 4. main.py mutants: _select_anchor ---
+    core = main_mod.Core()
+    assert core._select_anchor([], "rekordbox", None) is None
+    assert core._select_anchor([{"deck": 1, "trackId": "0", "playing": True}], "rekordbox", None) is None
+    d1 = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.8, "master": False}
+    d2 = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.9, "master": True}
+    assert core._select_anchor([d1, d2], "rekordbox", 1)["deck"] == 1
+    assert core._select_anchor([d1, d2], "rekordbox", 2)["deck"] == 2
+
+    # Inaudible fader filter
+    inaudible = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.02, "master": False}
+    audible = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.8, "master": False}
+    assert core._select_anchor([inaudible, audible], "rekordbox", None)["deck"] == 2
+
+    # Sticky anchor: challenger fader beat (diff >= 0.10)
+    core._last_anchor = 1
+    deck_prev = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.80, "master": False}
+    deck_challenger = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.95, "master": False}
+    assert core._select_anchor([deck_prev, deck_challenger], "rekordbox", None)["deck"] == 2
+
+    # Sticky anchor: challenger within 0.10 stays with prev
+    core._last_anchor = 1
+    deck_close = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.85, "master": False}
+    assert core._select_anchor([deck_prev, deck_close], "rekordbox", None)["deck"] == 1
+
+    # Sticky anchor: challenger master beat
+    core._last_anchor = 1
+    deck_master = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.82, "master": True}
+    assert core._select_anchor([deck_prev, deck_master], "rekordbox", None)["deck"] == 2
+
