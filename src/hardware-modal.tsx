@@ -204,6 +204,9 @@ export function HardwareModal({
                         <div className="flex" style={{ gap: 4 }}>
                           {d.master && <span className="pill green">MASTER</span>}
                           {d.playing && <span className="pill blue">PLAY</span>}
+                          {d.fader != null && (
+                            <span className="pill">Fader {Math.round(d.fader * 100)} %</span>
+                          )}
                           {d.key && <KeyBadge value={d.key} />}
                         </div>
                       </div>

@@ -17,6 +17,7 @@ class Core:
         self.media = {}
         self.demo = False
         self.demo_index = 0
+        self._last_anchor = None
 
     def replace_library(self, library):
         if self.library:
@@ -75,21 +76,15 @@ class Core:
             result["decks"].append({
                 "deck": deck["deck"], "name": "Rekordbox", "source": deck["deck"], "slot": 4,
                 "slotName": "Rekordbox lokal", "trackId": local_id or f"local:{deck['deck']}",
-                "trackType": 1, "bpm": deck["bpm"], "playing": deck["playing"], "master": False,
+                "trackType": 1, "bpm": deck["bpm"], "playing": deck["playing"],
+                "master": bool(deck.get("master", False)), "fader": deck.get("fader"),
                 "title": deck["title"], "artist": deck["artist"],
                 "key": deck["key"] or (track["key"] if track else None),
                 "genre": track["genre"] if track else None,
                 "seconds": deck["seconds"] or (track["seconds"] if track else None),
                 "libraryId": local_id,
             })
-        preferred_deck = options.get("deck")
-        available = [deck for deck in result["decks"] if deck["trackId"] != "0"
-                     and (state != "rekordbox" or deck["playing"])]
-        if preferred_deck is not None:
-            selected = next((deck for deck in available if deck["deck"] == preferred_deck), None)
-        else:
-            selected = min(available, key=lambda deck: (not deck["playing"], not deck["master"], deck["deck"]),
-                           default=None)
+        selected = self._select_anchor(result["decks"], state, options.get("deck"))
         result["anchor"] = selected["deck"] if selected else None
         if library and selected and selected["bpm"] is not None and selected["trackType"] and selected["trackId"] != "0":
             percent = number(options.get("tolerance"), 0, 30)
@@ -100,6 +95,56 @@ class Core:
                 bpm, selected["key"], selected["libraryId"], tolerance, options.get("harmonic", True),
             )
         return result
+
+    def _select_anchor(self, decks, state, preferred_deck):
+        available = [deck for deck in decks if deck["trackId"] != "0" and (state != "rekordbox" or deck["playing"])]
+        if preferred_deck is not None:
+            selected = next((deck for deck in available if deck["deck"] == preferred_deck), None)
+            if selected:
+                self._last_anchor = selected["deck"]
+            return selected
+        if not available:
+            return None
+
+        has_faders = any(deck.get("fader") is not None for deck in available)
+        if state == "rekordbox" and has_faders:
+            audible = [deck for deck in available if deck.get("fader") is None or deck["fader"] > 0.05]
+            if audible:
+                available = audible
+
+        def level(deck):
+            fader = deck.get("fader")
+            return 1.0 if fader is None else float(fader)
+
+        prev = next((deck for deck in available if deck["deck"] == self._last_anchor), None)
+        if prev is not None and len(available) > 1:
+            # Keep current active deck sticky unless a challenger has a clearly higher fader level (+0.10)
+            # or becomes the sole master at an equivalent fader level.
+            prev_lvl = level(prev)
+            challenger = max(
+                available,
+                key=lambda d: (round(level(d), 2), bool(d.get("master")), d["deck"] == self._last_anchor, -d["deck"]),
+            )
+            if challenger["deck"] != prev["deck"]:
+                ch_lvl = level(challenger)
+                fader_beat = (ch_lvl - prev_lvl) >= 0.10
+                master_beat = abs(ch_lvl - prev_lvl) < 0.05 and challenger.get("master") and not prev.get("master")
+                if fader_beat or master_beat:
+                    selected = challenger
+                else:
+                    selected = prev
+            else:
+                selected = prev
+        else:
+            selected = min(
+                available,
+                key=lambda d: (-round(level(d), 2), not d["playing"], not d.get("master"), d["deck"] != self._last_anchor, d["deck"]),
+                default=None,
+            )
+
+        if selected:
+            self._last_anchor = selected["deck"]
+        return selected
 
     def handle(self, method, params):
         if method == "open":

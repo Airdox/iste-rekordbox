@@ -96,7 +96,7 @@ function loadSetTracks(): Track[] {
   return []
 }
 
-function App() {
+export function App() {
   const [tab, setTab] = useState<Tab>('live')
   const [source, setSource] = useState<Source | null>(null)
   const [sourceBusy, setSourceBusy] = useState(true)
@@ -125,6 +125,7 @@ function App() {
   const [masterSource, setMasterSource] = useState<number | null>(null)
   const [deckNumber, setDeckNumber] = useState<number | null>(null)
   const [hwBusy, setHwBusy] = useState(false)
+  const [lastLiveDeck, setLastLiveDeck] = useState<Deck | null>(null)
 
   // Live Header / Reference state
   const [referenceKey, setReferenceKey] = useState('8A')
@@ -268,14 +269,38 @@ function App() {
     }
   }, [liveRevision, deckNumber, masterSource, bpmTolerance, source])
 
-  const activeDeck: Deck | null = useMemo(() => {
+  const anchoredDeck = useMemo(() => {
     if (!live.decks.length) return null
     if (deckNumber !== null) {
-      const exact = live.decks.find((d) => d.deck === deckNumber)
-      if (exact) return exact
+      return live.decks.find((d) => d.deck === deckNumber) ?? null
     }
-    return live.decks.find((d) => d.deck === live.anchor) ?? live.decks.find((d) => d.master) ?? live.decks[0] ?? null
+    if (live.anchor != null) {
+      return live.decks.find((d) => d.deck === live.anchor) ?? null
+    }
+    if (live.state === 'rekordbox') {
+      return null
+    }
+    return live.decks.find((d) => d.master) ?? live.decks[0] ?? null
   }, [live, deckNumber])
+
+  useEffect(() => {
+    if (anchoredDeck && (anchoredDeck.title || anchoredDeck.bpm || anchoredDeck.key)) {
+      setLastLiveDeck(anchoredDeck)
+    } else if (live.state === 'off') {
+      setLastLiveDeck(null)
+    }
+  }, [anchoredDeck, live.state])
+
+  const activeDeck: Deck | null = useMemo(() => {
+    if (anchoredDeck) return anchoredDeck
+    if (live.state === 'rekordbox' && lastLiveDeck) {
+      const stillLoaded = live.decks.find(
+        (d) => d.deck === lastLiveDeck.deck && d.title === lastLiveDeck.title,
+      )
+      return stillLoaded ?? lastLiveDeck
+    }
+    return null
+  }, [anchoredDeck, live.state, live.decks, lastLiveDeck])
 
   // Effective Live Track displayed in Top Livebar (either fixed reference, active hardware/demo deck, or first result preview)
   const displayLiveTrack = useMemo(() => {
@@ -1435,4 +1460,7 @@ function App() {
   )
 }
 
-createRoot(document.getElementById('root')!).render(<App />)
+const rootElement = document.getElementById('root')
+if (rootElement) {
+  createRoot(rootElement).render(<App />)
+}

@@ -70,6 +70,7 @@ export type Deck = {
   libraryId: string | null
   playing: boolean
   master: boolean
+  fader?: number | null
 }
 export type Match = Track & { delta: number; relation: string }
 export type Media = Source & { source: number; slot: number }
