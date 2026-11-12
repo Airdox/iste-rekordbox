@@ -26,7 +26,23 @@ NUMBER_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
 
 
 def _rekordbox_window():
+    if os.name != "nt":
+        return None
     user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    # Attach thread desktop to interactive default if needed
+    try:
+        hdesk_cur = user32.GetThreadDesktop(kernel32.GetCurrentThreadId())
+        buf = ctypes.create_unicode_buffer(128)
+        user32.GetUserObjectInformationW(hdesk_cur, 2, buf, 128, None)
+        if buf.value.lower() != "default":
+            hdesk_def = user32.OpenDesktopW("default", 0, False, 0x01FF)
+            if hdesk_def:
+                user32.SetThreadDesktop(hdesk_def)
+    except Exception as exc:
+        LOGGER.debug("Thread desktop switch skipped: %s", exc)
+
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
     user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
@@ -35,9 +51,10 @@ def _rekordbox_window():
 
     @callback_type
     def inspect(hwnd, _):
-        title = ctypes.create_unicode_buffer(64)
-        user32.GetWindowTextW(hwnd, title, len(title))
-        if title.value.casefold() != "rekordbox":
+        title = ctypes.create_unicode_buffer(128)
+        user32.GetWindowTextW(hwnd, title, 128)
+        val = title.value.strip().casefold()
+        if val != "rekordbox" and not val.startswith("rekordbox "):
             return True
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -49,7 +66,7 @@ def _rekordbox_window():
         return True
 
     user32.EnumWindows(inspect, 0)
-    return matches[0] if len(matches) == 1 else None
+    return matches[0] if matches else None
 
 
 def _tempo(value):
@@ -440,6 +457,7 @@ def _focus_window(hwnd):
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        time.sleep(0.3)
     current_tid = kernel32.GetCurrentThreadId()
     target_tid = user32.GetWindowThreadProcessId(hwnd, None)
     attached = bool(
@@ -489,6 +507,36 @@ def _send_combo(*keys):
     return user32.SendInput(len(events), arr, ctypes.sizeof(_Input)) == len(events)
 
 
+def _type_unicode(text):
+    """Type unicode string via SendInput (KEYEVENTF_UNICODE = 0x0004)."""
+    if os.name != "nt" or not text:
+        return False
+
+    class _KeyInput(ctypes.Structure):
+        _fields_ = [
+            ("wVk", wintypes.WORD),
+            ("wScan", wintypes.WORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ctypes.c_size_t),
+        ]
+
+    class _InputUnion(ctypes.Union):
+        _fields_ = [("ki", _KeyInput), ("pad", ctypes.c_byte * 32)]
+
+    class _Input(ctypes.Structure):
+        _fields_ = [("type", wintypes.DWORD), ("union", _InputUnion)]
+
+    events = []
+    for ch in text:
+        code = ord(ch)
+        events.append(_Input(type=1, union=_InputUnion(ki=_KeyInput(wVk=0, wScan=code, dwFlags=0x0004))))
+        events.append(_Input(type=1, union=_InputUnion(ki=_KeyInput(wVk=0, wScan=code, dwFlags=0x0006))))
+    arr = (_Input * len(events))(*events)
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    return user32.SendInput(len(events), arr, ctypes.sizeof(_Input)) == len(events)
+
+
 def send_track_to_rekordbox(
     action,
     query,
@@ -498,6 +546,7 @@ def send_track_to_rekordbox(
     clipboard_fn=_set_clipboard_text,
     focus_fn=_focus_window,
     key_sender=_send_combo,
+    type_sender=_type_unicode,
     sleep_fn=time.sleep,
 ):
     """Reveal a track in Rekordbox Collection search and optionally load it into Deck 1 or 2."""
@@ -520,24 +569,27 @@ def send_track_to_rekordbox(
             "message": "Rekordbox ist nicht geöffnet. Suchtext wurde in die Zwischenablage kopiert.",
         }
     focus_fn(hwnd)
-    sleep_fn(0.14)
-    key_sender("ctrl", "f")
-    sleep_fn(0.08)
+    sleep_fn(0.25)
+    key_sender("alt", "f")
+    sleep_fn(0.12)
     key_sender("ctrl", "a")
     key_sender("back")
-    key_sender("ctrl", "v")
+    sleep_fn(0.06)
+    typed = bool(type_sender and type_sender(clean_query))
+    if not typed:
+        key_sender("ctrl", "v")
     sleep_fn(0.24)
     key_sender("enter")
-    sleep_fn(0.12)
+    sleep_fn(0.18)
     key_sender("down")
     deck = None
     if action == "deck1":
         deck = 1
-        sleep_fn(0.08)
+        sleep_fn(0.12)
         key_sender("shift", "left")
     elif action == "deck2":
         deck = 2
-        sleep_fn(0.08)
+        sleep_fn(0.12)
         key_sender("shift", "right")
     label = f"In Rekordbox gesucht & an Deck {deck} (A/B) gesendet" if deck else "In Rekordbox gesucht"
     return {
