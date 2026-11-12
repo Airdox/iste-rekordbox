@@ -644,7 +644,11 @@ describe('filter-view.tsx', () => {
 
     // Header sort inside FilterView table
     fireEvent.click(within(screen.getByRole('columnheader', { name: 'Titel' })).getByRole('button'))
-    expect(onSortStagesChange).toHaveBeenLastCalledWith([{ id: 'title', desc: false }])
+    expect(onSortStagesChange).toHaveBeenLastCalledWith([
+      { id: 'bpm', desc: false },
+      { id: 'year', desc: true },
+      { id: 'title', desc: false },
+    ])
     rerender(cloneElement(filter, { sortStages: [{ id: 'title', desc: true }] }))
     fireEvent.click(within(screen.getByRole('columnheader', { name: 'Titel' })).getByRole('button'))
     expect(onSortStagesChange).toHaveBeenLastCalledWith([])
