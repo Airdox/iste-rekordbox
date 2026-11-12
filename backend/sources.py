@@ -144,7 +144,8 @@ def _joined(conn, table, fields, bpm_column, joins):
             fields_sql.append(f'{alias}."{field}" AS "{alias}"')
         else:
             fields_sql.append(f'NULL AS "{alias}"')
-    cursor = conn.execute(f'SELECT {", ".join(fields_sql)} FROM "{table}" AS c {" ".join(joins_sql)}')
+    sql = f'SELECT {", ".join(fields_sql)} FROM "{table}" AS c {" ".join(joins_sql)}'  # noqa: S608
+    cursor = conn.execute(sql)
     names = [column[0] for column in cursor.description]
     return [dict(zip(names, row, strict=False)) for row in cursor]
 

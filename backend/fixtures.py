@@ -13,7 +13,7 @@ TITLES = ("Afterimage", "Glass Corridor", "Negative Space", "Kinetic Memory", "N
 
 
 def demo_tracks(count=15_500):
-    rng = random.Random(13800)
+    rng = random.Random(13800)  # noqa: S311
     tempo = (137, 126, 119, 124, 128, 141, 125, 135, 132, 94, 174)
     for index in range(count):
         genre = rng.choices(range(len(GENRES)), [23, 16, 13, 13, 9, 6, 6, 4, 4, 3, 3])[0]
@@ -48,11 +48,16 @@ def generate(path, count):
                 ArtistID TEXT, GenreID TEXT, KeyID TEXT, AlbumID TEXT, LabelID TEXT
             );
         """)
-        for table, values in (("Artist", ARTISTS), ("Genre", GENRES),
-                              ("Key", [f"{i}{mode}" for i in range(1, 13) for mode in "AB"]),
-                              ("Album", ("Night Session",)), ("Label", ("Circuit Archive",))):
-            conn.executemany(f"INSERT INTO djmd{table} VALUES (?,?)", [(value, value) for value in values])
-        conn.executemany("INSERT INTO djmdContent VALUES (" + ",".join(["?"] * 19) + ")", (
+        table_inserts = (
+            ("INSERT INTO djmdArtist VALUES (?,?)", ARTISTS),
+            ("INSERT INTO djmdGenre VALUES (?,?)", GENRES),
+            ("INSERT INTO djmdKey VALUES (?,?)", [f"{i}{mode}" for i in range(1, 13) for mode in "AB"]),
+            ("INSERT INTO djmdAlbum VALUES (?,?)", ("Night Session",)),
+            ("INSERT INTO djmdLabel VALUES (?,?)", ("Circuit Archive",)),
+        )
+        for sql, values in table_inserts:
+            conn.executemany(sql, [(value, value) for value in values])
+        conn.executemany("INSERT INTO djmdContent VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
             (track["id"], track["title"], track["path"], track["year"], None, track["added"], "",
              track["rating"] * 51, track["seconds"], track["bytes"], track["bitrate"], track["sample_rate"],
              track["plays"], round(track["bpm"] * 100), track["artist"], track["genre"], track["key_raw"],

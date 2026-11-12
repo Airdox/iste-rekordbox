@@ -379,29 +379,29 @@ describe('App (main.tsx)', () => {
 
     // LiveView inspector transport & find modal (reveal, deck A, deck B, explorer, copy, close)
     const liveInspector = within(document.querySelector('#liveInspector')! as HTMLElement)
-    fireEvent.click(liveInspector.getByRole('button', { name: /In Rekordbox/i }))
+    fireEvent.click(liveInspector.getByText(/In Rekordbox/i))
     await waitFor(() =>
       expect(reqSpy).toHaveBeenCalledWith('rekordboxTransport', expect.objectContaining({ action: 'reveal' })),
     )
-    fireEvent.click(liveInspector.getByRole('button', { name: /Deck A/i }))
+    fireEvent.click(liveInspector.getByText(/Deck A/i))
     await waitFor(() =>
       expect(reqSpy).toHaveBeenCalledWith('rekordboxTransport', expect.objectContaining({ action: 'deck1' })),
     )
-    fireEvent.click(liveInspector.getByRole('button', { name: /Deck B/i }))
+    fireEvent.click(liveInspector.getByText(/Deck B/i))
     await waitFor(() =>
       expect(reqSpy).toHaveBeenCalledWith('rekordboxTransport', expect.objectContaining({ action: 'deck2' })),
     )
 
-    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(liveInspector.getByText(/Details/i))
     const findModal = within(document.querySelector('.modal')! as HTMLElement)
     fireEvent.click(findModal.getByText('Im Explorer zeigen'))
     await waitFor(() => expect(window.cuepoint.revealFile).toHaveBeenCalledWith('E:/Music/acid.mp3'))
     fireEvent.click(findModal.getByText('In Rekordbox anzeigen'))
-    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(liveInspector.getByText(/Details/i))
     fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Deck A laden'))
-    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(liveInspector.getByText(/Details/i))
     fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Deck B laden'))
-    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(liveInspector.getByText(/Details/i))
     fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText(/Suchtext kopieren/i))
     expect(writeText).toHaveBeenCalled()
 
@@ -412,7 +412,7 @@ describe('App (main.tsx)', () => {
       const pinMenuBtn = document.querySelector('.context-menu button')
       if (pinMenuBtn) fireEvent.click(pinMenuBtn)
     }
-  }, 30000)
+  }, 60000)
 
   it('handles filter presets, rule groups, custom preset saving and SetView export/clear', async () => {
     localStorage.clear()

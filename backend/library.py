@@ -113,8 +113,9 @@ class Library:
         # Integer ranks keep comparison keys small even when a title, path or comment is long.
         base = ("id", "genre", *INTEGER, "rating", "key", "bpm")
         columns = (*base, "key_sort", *(SORTS[field] for field in TEXT_SORTS))
+        insert_sql = f"INSERT INTO tracks ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})"  # noqa: S608
         self.conn.executemany(
-            f"INSERT INTO tracks ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
+            insert_sql,
             ((*[track[field] for field in base], _key_rank(track["key"]),
               *[ranks[field].get(folded_fields[field][index]) for field in TEXT_SORTS])
              for index, track in enumerate(normalized)),
@@ -313,7 +314,8 @@ class Library:
                     mask &= lut[self._sort_asc[field]]
                 return True
             column = f"lower({field})" if field in ("key", "id") else SORTS[field]
-            rows = self.conn.execute(f"SELECT id FROM tracks WHERE instr({column}, ?) > 0", (folded(value),)).fetchall()
+            query_sql = f"SELECT id FROM tracks WHERE instr({column}, ?) > 0"  # noqa: S608
+            rows = self.conn.execute(query_sql, (folded(value),)).fetchall()
             if not rows:
                 return False
             sub = np.zeros(self.total, dtype=bool)

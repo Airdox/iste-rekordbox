@@ -1,6 +1,7 @@
 """Read the deck displays, faders, and crossfader exposed by the local Rekordbox window."""
 
 import ctypes
+import logging
 import os
 import re
 import threading
@@ -11,6 +12,8 @@ from dataclasses import dataclass
 import psutil
 
 from keys import camelot
+
+LOGGER = logging.getLogger(__name__)
 
 KEY_LABEL = ("tonart:", "key:")
 CURRENT_KEY = ("aktuelle tonart.", "current key.")
@@ -77,8 +80,8 @@ def _normalized_slider(element, uia, fallback_text=""):
         if value is not None and minimum is not None and maximum is not None and float(maximum) > float(minimum):
             ratio = (float(value) - float(minimum)) / (float(maximum) - float(minimum))
             return max(0.0, min(1.0, ratio))
-    except Exception:
-        pass
+    except Exception as exc:
+        LOGGER.debug("UIA slider range read failed: %s", exc)
     for prop_id in (getattr(uia, "UIA_ValueValuePropertyId", None), getattr(uia, "UIA_NamePropertyId", None)):
         if not prop_id:
             continue
@@ -106,8 +109,8 @@ def _is_master_active(element, uia, text):
         state = element.GetCurrentPropertyValue(uia.UIA_ToggleToggleStatePropertyId)
         if state in (1, True):
             return True
-    except Exception:
-        pass
+    except Exception as exc:
+        LOGGER.debug("UIA master toggle read failed: %s", exc)
     low = (text or "").casefold()
     return "master" in low and any(tok in low for tok in ("on", "aktiv", "active", "1"))
 
