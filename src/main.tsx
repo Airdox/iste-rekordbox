@@ -15,13 +15,18 @@ import {
   Results,
   Source,
   Track,
+  basename,
   bpmText,
   count,
   duration,
+  exportM3u8Playlist,
+  exportRekordboxXml,
   exportSetCsv,
   message,
+  rekordboxTransport,
   relatedKeys,
   request,
+  revealFile,
 } from './api'
 import { KeyBadge, LiveWaveform, Modal } from './components'
 import { FilterView } from './filter-view'
@@ -749,6 +754,46 @@ export function App() {
     }
   }
 
+  const resolveTrackPath = (track: Track) =>
+    (inspectedDetail?.id === track.id && inspectedDetail.path) || track.path || ''
+
+  const handleRekordboxTransport = async (
+    track: Track,
+    action: 'reveal' | 'deck1' | 'deck2',
+  ) => {
+    const query = `${track.title} ${track.artist}`.trim()
+    const path = resolveTrackPath(track)
+    try {
+      const result = await rekordboxTransport({ id: track.id, action, query, path })
+      if (!result.ok) {
+        if (query) void navigator.clipboard?.writeText(query).catch(() => {})
+        showToast(
+          result.message || 'Rekordbox ist nicht geöffnet. Suchtext in Zwischenablage kopiert.',
+        )
+        return
+      }
+      showToast(result.message)
+    } catch (err) {
+      if (query) void navigator.clipboard?.writeText(query).catch(() => {})
+      showToast(`${message(err)} – Suchtext in Zwischenablage kopiert.`)
+    }
+  }
+
+  const handleRevealFile = async (track: Track) => {
+    const path = resolveTrackPath(track)
+    if (!path) {
+      showToast('Kein lokaler Dateipfad für diesen Track vorhanden.')
+      return
+    }
+    const opened = await revealFile(path)
+    if (!opened) {
+      void navigator.clipboard?.writeText(path).catch(() => {})
+      showToast('Explorer nicht verfügbar oder Datei fehlt – Dateipfad kopiert.')
+      return
+    }
+    showToast(`Im Explorer geöffnet: ${basename(path) || path}`)
+  }
+
   // Computed labels
   const liveConnected = live.state === 'listening' || live.state === 'rekordbox'
   const liveStateDot = liveConnected ? 'good' : live.state === 'error' ? 'bad' : 'orange'
@@ -827,6 +872,7 @@ export function App() {
             className={`navtab ${tab === 'live' ? 'active' : ''}`}
             id="tab-live"
             data-tab="live"
+            title="Live-Match: Harmonischer Kompass und passende Tracks zum laufenden Deck (Strg+1)"
             onClick={() => setTab('live')}
           >
             ◉ &nbsp; Live-Match
@@ -835,6 +881,7 @@ export function App() {
             className={`navtab ${tab === 'filter' ? 'active' : ''}`}
             id="tab-filter"
             data-tab="filter"
+            title="Filter-Studio: Freie UND/ODER-Regelgruppen, Suche und Sortierkaskaden (Strg+2)"
             onClick={() => setTab('filter')}
           >
             ☷ &nbsp; Filter-Studio
@@ -843,6 +890,7 @@ export function App() {
             className={`navtab ${tab === 'set' ? 'active' : ''}`}
             id="tab-set"
             data-tab="set"
+            title="Set-Builder: Reihenfolge, Übergangsanalyse und Export als M3U8, XML oder CSV (Strg+3)"
             onClick={() => setTab('set')}
           >
             ▤ &nbsp; Set-Builder{' '}
@@ -857,6 +905,7 @@ export function App() {
             <button
               className={`demo-tag ${isRealDb ? 'real' : ''}`}
               id="sourceButton"
+              title="Aktive Rekordbox-Bibliothek (Read-Only) wechseln, Ordner öffnen oder Testbibliothek laden"
               onClick={() => setSourceMenuOpen((prev) => !prev)}
             >
               {source
@@ -898,6 +947,7 @@ export function App() {
           <button
             className={`status-head ${liveConnected ? 'online' : ''}`}
             id="liveStatusBtn"
+            title="Live-Status & Hardware-Verbindung öffnen (Pro DJ Link, lokales Rekordbox & USB-Quellmedien)"
             onClick={() => {
               void refreshHardwareLists()
               setModal({ type: 'hardware' })
@@ -907,7 +957,12 @@ export function App() {
             {liveStateLabel}
           </button>
 
-          <button className="sm ghost" id="helpBtn" onClick={() => setModal({ type: 'help' })}>
+          <button
+            className="sm ghost"
+            id="helpBtn"
+            title="Zeigt Bedienungshinweise und Tastenkürzel (Strg+1/2/3, Strg+F, Esc)"
+            onClick={() => setModal({ type: 'help' })}
+          >
             ? &nbsp; Bedienung
           </button>
         </div>
@@ -972,12 +1027,22 @@ export function App() {
           </div>
           <div className="sub">Live-Analyse oben in allen Reitern sichtbar</div>
           <div className="live-actions">
-            <button className="sm" id="changeTrack" onClick={() => void handleNextDemoTrack()}>
+            <button
+              className="sm"
+              id="changeTrack"
+              title="Schaltet im Demo-Link zum nächsten simulierten Live-Track weiter"
+              onClick={() => void handleNextDemoTrack()}
+            >
               ↻ &nbsp; Nächster Demo-Track
             </button>
             <button
               className={`sm ${pinnedTrack ? 'primary' : 'ghost'}`}
               id="pinTrack"
+              title={
+                pinnedTrack
+                  ? 'Hebt die fixierte Referenz wieder auf und folgt erneut dem aktiven Live-Deck'
+                  : 'Fixiert den aktuellen Track als feste harmonische Referenz (ignoriert Deck-Wechsel)'
+              }
               onClick={handleToggleHeaderPin}
             >
               {pinnedTrack ? '⌖ Referenz lösen' : '⌖ Referenz fixieren'}
@@ -1124,6 +1189,7 @@ export function App() {
             onAddToSet={addToSet}
             onPinAsReference={pinTrackAsReference}
             onFindRekordbox={(track) => setModal({ type: 'find', track })}
+            onRekordboxAction={(track, action) => void handleRekordboxTransport(track, action)}
             setIds={setIds}
             setCount={setTracks.length}
             onGoFilterStudio={() => setTab('filter')}
@@ -1220,6 +1286,12 @@ export function App() {
             onAddToSet={addToSet}
             onRemoveFromSet={removeFromSet}
             onFindRekordbox={(track) => setModal({ type: 'find', track })}
+            onRekordboxAction={(track, action) => void handleRekordboxTransport(track, action)}
+            onExportFilteredM3u8={(tracks) => {
+              if (!tracks.length) return
+              exportM3u8Playlist(tracks, 'airdox-filter-treffer.m3u8')
+              showToast(`${tracks.length} Filter-Treffer als M3U8 exportiert.`)
+            }}
             setTracks={setTracks}
             setIds={setIds}
             onOpenSetBuilder={() => setTab('set')}
@@ -1241,6 +1313,16 @@ export function App() {
               if (!setTracks.length) return
               exportSetCsv(setTracks)
               showToast('Setliste als CSV exportiert.')
+            }}
+            onExportM3u8={() => {
+              if (!setTracks.length) return
+              exportM3u8Playlist(setTracks)
+              showToast('Setliste als M3U8-Playlist exportiert.')
+            }}
+            onExportXml={() => {
+              if (!setTracks.length) return
+              exportRekordboxXml(setTracks)
+              showToast('Setliste als Rekordbox-XML exportiert.')
             }}
             onClearSet={() => setModal({ type: 'clearSet' })}
             onExplainImport={() => setModal({ type: 'handover' })}
@@ -1323,49 +1405,80 @@ export function App() {
         />
       </Modal>
 
-      <Modal
-        open={modal?.type === 'find'}
-        title="Track in Rekordbox finden"
-        onClose={() => setModal(null)}
-        actions={[
-          {
-            label: 'Suchtext kopieren',
-            primary: true,
-            onClick: () => {
-              if (modal?.type !== 'find') return
-              const q = `${modal.track.title} ${modal.track.artist}`.trim()
-              void navigator.clipboard?.writeText(q).catch(() => {})
-              showToast(`In Zwischenablage: ${q}`)
-              setModal(null)
-            },
-          },
-          { label: 'Schließen', onClick: () => setModal(null) },
-        ]}
-      >
-        {modal?.type === 'find' && (
-          <>
-            <p>
-              <strong>{modal.track.title}</strong> – {modal.track.artist || 'Unbekannt'}
-            </p>
-            <div className="info">
-              BPM: <strong>{bpmText(modal.track.bpm)}</strong> · Key:{' '}
-              <KeyBadge value={modal.track.key} reference={referenceKey} /> · Genre:{' '}
-              <strong>{modal.track.genre || '–'}</strong>
-              <br />
-              Datei:{' '}
-              <code>
-                {inspectedDetail?.id === modal.track.id && inspectedDetail.path
-                  ? inspectedDetail.path
-                  : modal.track.path || 'Lokaler Datenbankeintrag'}
-              </code>
-            </div>
-            <p className="hint">
-              Rekordbox wird ausschließlich lesend eingebunden; es erfolgen keine direkten
-              Schreibzugriffe auf <code>master.db</code>.
-            </p>
-          </>
-        )}
-      </Modal>
+      {(() => {
+        const findTrack = modal?.type === 'find' ? modal.track : null
+        const findPath = findTrack ? resolveTrackPath(findTrack) : ''
+        return (
+          <Modal
+            open={Boolean(findTrack)}
+            title="Track in Rekordbox finden"
+            onClose={() => setModal(null)}
+            actions={[
+              {
+                label: 'In Rekordbox anzeigen',
+                primary: true,
+                onClick: () => {
+                  void handleRekordboxTransport(findTrack!, 'reveal')
+                  setModal(null)
+                },
+              },
+              {
+                label: 'Deck A laden',
+                onClick: () => {
+                  void handleRekordboxTransport(findTrack!, 'deck1')
+                  setModal(null)
+                },
+              },
+              {
+                label: 'Deck B laden',
+                onClick: () => {
+                  void handleRekordboxTransport(findTrack!, 'deck2')
+                  setModal(null)
+                },
+              },
+              ...(findPath
+                ? [
+                    {
+                      label: 'Im Explorer zeigen',
+                      onClick: () => {
+                        void handleRevealFile(findTrack!)
+                      },
+                    },
+                  ]
+                : []),
+              {
+                label: 'Suchtext kopieren',
+                onClick: () => {
+                  const q = `${findTrack!.title} ${findTrack!.artist}`.trim()
+                  void navigator.clipboard?.writeText(q).catch(() => {})
+                  showToast(`In Zwischenablage: ${q}`)
+                  setModal(null)
+                },
+              },
+              { label: 'Schließen', onClick: () => setModal(null) },
+            ]}
+          >
+            {findTrack && (
+              <>
+                <p>
+                  <strong>{findTrack.title}</strong> – {findTrack.artist || 'Unbekannt'}
+                </p>
+                <div className="info">
+                  BPM: <strong>{bpmText(findTrack.bpm)}</strong> · Key:{' '}
+                  <KeyBadge value={findTrack.key} reference={referenceKey} /> · Genre:{' '}
+                  <strong>{findTrack.genre || '–'}</strong>
+                  <br />
+                  Datei: <code>{findPath || 'Lokaler Datenbankeintrag'}</code>
+                </div>
+                <p className="hint">
+                  Rekordbox wird ausschließlich lesend eingebunden; es erfolgen keine direkten
+                  Schreibzugriffe auf <code>master.db</code>.
+                </p>
+              </>
+            )}
+          </Modal>
+        )
+      })()}
 
       <Modal
         open={modal?.type === 'clearSet'}
@@ -1393,10 +1506,29 @@ export function App() {
         onClose={() => setModal(null)}
         actions={[
           {
-            label: 'CSV jetzt exportieren',
+            label: 'M3U8-Playlist exportieren',
             primary: true,
+            disabled: !setTracks.length,
             onClick: () => {
-              if (setTracks.length) exportSetCsv(setTracks)
+              exportM3u8Playlist(setTracks)
+              setModal(null)
+              showToast('M3U8-Playlist exportiert (in Rekordbox importieren).')
+            },
+          },
+          {
+            label: 'Rekordbox XML exportieren',
+            disabled: !setTracks.length,
+            onClick: () => {
+              exportRekordboxXml(setTracks)
+              setModal(null)
+              showToast('Rekordbox-XML exportiert (rekordbox.xml Import).')
+            },
+          },
+          {
+            label: 'CSV exportieren',
+            disabled: !setTracks.length,
+            onClick: () => {
+              exportSetCsv(setTracks)
               setModal(null)
               showToast('CSV-Export gestartet.')
             },
@@ -1405,8 +1537,10 @@ export function App() {
         ]}
       >
         <p>
-          Deine vorbereitete Setliste kann sauber als CSV exportiert oder direkt beim Mixen über
-          die Setliste als Vorbereitungshilfe genutzt werden.
+          Übergebe dein vorbereitetes Set sicher an Rekordbox: als <strong>M3U8-Playlist</strong>{' '}
+          (direkt per Drag-and-drop in Rekordbox ziehen), als <strong>Rekordbox XML</strong>{' '}
+          (Import über <code>rekordbox.xml</code>) oder als <strong>CSV</strong> für deine
+          Set-Dokumentation.
         </p>
         <div className="info">
           <strong>Sicherheitsgarantie:</strong> Die aktive Rekordbox-Datenbank wird ausschließlich

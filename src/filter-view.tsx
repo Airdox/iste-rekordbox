@@ -52,6 +52,8 @@ type FilterViewProps = {
   onAddToSet: (track: Track) => void
   onRemoveFromSet: (trackId: string) => void
   onFindRekordbox: (track: Track) => void
+  onRekordboxAction?: (track: Track, action: 'reveal' | 'deck1' | 'deck2') => void
+  onExportFilteredM3u8?: (tracks: Track[]) => void
   setTracks: Track[]
   setIds: Set<string>
   onOpenSetBuilder: () => void
@@ -91,6 +93,8 @@ export function FilterView({
   onAddToSet,
   onRemoveFromSet,
   onFindRekordbox,
+  onRekordboxAction,
+  onExportFilteredM3u8,
   setTracks,
   setIds,
   onOpenSetBuilder,
@@ -159,8 +163,21 @@ export function FilterView({
     >
       <div className="pane">
         <div className="panehead">
-          <h2>Freie Filter-Kaskade</h2>
-          <button className="sm" id="resetFilters" onClick={onResetFilters}>
+          <h2>
+            Freie Filter-Kaskade{' '}
+            <span
+              className="infotip"
+              title="Kombiniere beliebig viele UND-/ODER-Regelgruppen über alle 18 Rekordbox-Metadatenfelder – unabhängig vom Live-Deck."
+            >
+              ⓘ
+            </span>
+          </h2>
+          <button
+            className="sm"
+            id="resetFilters"
+            title="Setzt alle Regelgruppen, Vorlagen und die Freitextsuche auf den Ausgangszustand zurück"
+            onClick={onResetFilters}
+          >
             Zurücksetzen
           </button>
         </div>
@@ -176,6 +193,7 @@ export function FilterView({
             <select
               id="presetSelect"
               aria-label="Filter-Vorlage wählen"
+              title="Lädt eine vordefinierte oder selbst gespeicherte Filter-Kaskade"
               style={{ flex: 1 }}
               value={selectedPresetId}
               onChange={(e) => {
@@ -189,7 +207,12 @@ export function FilterView({
                 </option>
               ))}
             </select>
-            <button className="sm" id="savePreset" onClick={onOpenSavePreset}>
+            <button
+              className="sm"
+              id="savePreset"
+              title="Speichert die aktuelle UND/ODER-Filterkaskade als eigene Vorlage in der Seitenleiste"
+              onClick={onOpenSavePreset}
+            >
               Speichern
             </button>
           </div>
@@ -197,10 +220,19 @@ export function FilterView({
           <div className="sep" />
 
           <div className="flex space">
-            <span className="kicker">Regelgruppen verknüpfen mit</span>
+            <span className="kicker">
+              Regelgruppen verknüpfen mit{' '}
+              <span
+                className="infotip"
+                title="UND = alle Gruppen müssen zutreffen; ODER = es reicht, wenn mindestens eine Gruppe zutrifft."
+              >
+                ⓘ
+              </span>
+            </span>
             <select
               id="groupLogic"
               aria-label="Regelgruppen verknüpfen"
+              title="Verknüpfungslogik zwischen mehreren Regelgruppen wählen (UND / ODER)"
               value={groupLogic}
               onChange={(e) => onGroupLogicChange(e.target.value as 'AND' | 'OR')}
             >
@@ -223,6 +255,7 @@ export function FilterView({
                     <div className="flex">
                       <select
                         aria-label={`Verknüpfung Regelgruppe ${gi + 1}`}
+                        title="Bestimmt, ob innerhalb dieser Gruppe alle Regeln (UND) oder mindestens eine (ODER) erfüllt sein müssen"
                         value={g.mode}
                         onChange={(e) =>
                           onGroupModeChange(g.uid, e.target.value as 'AND' | 'OR')
@@ -235,7 +268,7 @@ export function FilterView({
                         <button
                           className="sm"
                           onClick={() => onRemoveGroup(g.uid)}
-                          title="Gruppe entfernen"
+                          title="Diese Regelgruppe komplett entfernen"
                           aria-label={`Regelgruppe ${gi + 1} entfernen`}
                         >
                           ×
@@ -248,6 +281,7 @@ export function FilterView({
                     <div className="rule" key={r.uid}>
                       <select
                         aria-label="Metadaten-Feld"
+                        title="Metadaten-Feld für diese Filterregel wählen (z. B. BPM, Genre, Camelot-Key, Bewertung)"
                         value={r.id}
                         onChange={(e) =>
                           onRuleChange(g.uid, r.uid, { id: e.target.value as MetadataId })
@@ -261,6 +295,7 @@ export function FilterView({
                       </select>
                       <select
                         aria-label="Vergleichsoperator"
+                        title="Vergleichsoperator wählen – ‚zwischen‘ akzeptiert Zahlenbereiche wie 134..142"
                         value={r.op}
                         onChange={(e) =>
                           onRuleChange(g.uid, r.uid, { op: e.target.value as Operator })
@@ -275,6 +310,7 @@ export function FilterView({
                       <input
                         type="text"
                         aria-label="Filterwert"
+                        title="Suchwert eingeben (bei ‚zwischen‘ als Bereich wie 134..142)"
                         disabled={r.op === 'empty'}
                         value={r.value}
                         placeholder={r.op === 'range' ? '134..142' : r.op === 'empty' ? '—' : 'Wert'}
@@ -285,7 +321,7 @@ export function FilterView({
                       <button
                         className="sm"
                         onClick={() => onRemoveRule(g.uid, r.uid)}
-                        title="Regel entfernen"
+                        title="Diese Filterregel entfernen"
                         aria-label="Regel entfernen"
                       >
                         ×
@@ -295,6 +331,7 @@ export function FilterView({
 
                   <button
                     className="sm ghost"
+                    title="Fügt dieser Gruppe eine weitere Filterbedingung hinzu"
                     onClick={() => onAddRule(g.uid)}
                     style={{ marginTop: 4 }}
                   >
@@ -305,7 +342,12 @@ export function FilterView({
             ))}
           </div>
 
-          <button className="groupplus" id="addGroup" onClick={onAddGroup}>
+          <button
+            className="groupplus"
+            id="addGroup"
+            title="Erstellt eine neue Regelgruppe, die mit den bestehenden Gruppen per UND/ODER verknüpft wird"
+            onClick={onAddGroup}
+          >
             + &nbsp; Neue Regelgruppe
           </button>
 
@@ -318,12 +360,18 @@ export function FilterView({
 
         <div className="panefoot">
           <div className="filteractions">
-            <button className="primary" id="applyFilter" onClick={onApplyFilter}>
+            <button
+              className="primary"
+              id="applyFilter"
+              title="Wendet alle aktiven Filterregeln und Sortierstufen auf die Bibliothek an"
+              onClick={onApplyFilter}
+            >
               Filter aktualisieren
             </button>
             <button
               id="sendSelectionToSet"
               disabled={!selectedTrack}
+              title="Fügt den aktuell markierten Track direkt zum Set-Korb hinzu"
               onClick={() => selectedTrack && onAddToSet(selectedTrack)}
             >
               + &nbsp; Auswahl zum Set
@@ -352,14 +400,23 @@ export function FilterView({
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Freitext: Titel, Interpret, Album, Label, Kommentar ..."
               aria-label="Freitextsuche"
+              title="Durchsucht Titel, Interpret, Album, Label und Kommentar unabhängig von den Regelgruppen (Tastenkürzel: Strg+F)"
             />
           </div>
           <button
             id="toggleSortDesigner"
-            title="Mehrstufige Sortierung bearbeiten"
+            title="Mehrstufige Sortierkaskade (#1, #2, #3 ...) öffnen oder schließen"
             onClick={() => setDesignerOpen((prev) => !prev)}
           >
             ⇅ Sortierkaskade <span id="sortCount">({sortStages.length})</span>
+          </button>
+          <button
+            id="exportFilterM3u8"
+            disabled={rows.length === 0}
+            title="Exportiert alle aktuell gefilterten Treffer als M3U8-Playlist für den direkten Import in Rekordbox"
+            onClick={() => onExportFilteredM3u8?.(rows)}
+          >
+            ↓ M3U8
           </button>
         </div>
 
@@ -380,7 +437,19 @@ export function FilterView({
         </div>
 
         <div className="sortcascade" id="sortCascadeBar">
-          <span className="leader">SORT:</span>
+          <span
+            className="leader"
+            title="Aktive mehrstufige Sortierprioritäten von links (#1) nach rechts"
+          >
+            SORT
+            <span
+              className="infotip"
+              title="Sortiert zuerst nach Stufe 1; bei identischen Werten entscheidet Stufe 2 usw. Klick auf Spaltenköpfe oder ‚Sortierkaskade‘ zum Anpassen."
+            >
+              ⓘ
+            </span>
+            :
+          </span>
           {sortStages.length ? (
             sortStages.map((st, idx) => {
               const f = metadata.get(st.id)
@@ -388,7 +457,7 @@ export function FilterView({
               return (
                 <span key={`${st.id}-${idx}`} className="sort-stage-wrap">
                   {idx > 0 && <span style={{ color: '#7d95ac', marginRight: 5 }}>›</span>}
-                  <span className="stages">
+                  <span className="stages" title={`Sortierstufe ${idx + 1}: ${label} (${st.desc ? 'absteigend' : 'aufsteigend'})`}>
                     {idx + 1}. {label} {st.desc ? '↓' : '↑'}
                   </span>
                 </span>
@@ -411,6 +480,7 @@ export function FilterView({
               <span className="ord">#{idx + 1}</span>
               <select
                 aria-label={`Sortierfeld Stufe ${idx + 1}`}
+                title="Metadaten-Feld für diese Sortierstufe wählen"
                 value={st.id}
                 onChange={(e) => updateStage(idx, { id: e.target.value as MetadataId })}
               >
@@ -446,12 +516,18 @@ export function FilterView({
             </div>
           ))}
           <div className="flex space">
-            <button className="sm" id="addSortStage" onClick={addStage}>
+            <button
+              className="sm"
+              id="addSortStage"
+              title="Fügt eine weitere nachrangige Sortierstufe zur Kaskade hinzu"
+              onClick={addStage}
+            >
               + Sortierstufe hinzufügen
             </button>
             <button
               className="sm"
               id="closeSortDesigner"
+              title="Schließt den Sortierkaskaden-Editor"
               onClick={() => setDesignerOpen(false)}
             >
               Schließen
@@ -473,6 +549,7 @@ export function FilterView({
           onPinReference={onPinReference}
           onAddToSet={onAddToSet}
           onFindRekordbox={onFindRekordbox}
+          onRekordboxAction={onRekordboxAction}
           setIds={setIds}
           emptyTitle="Keine Tracks entsprechen diesen Regeln."
           emptyActionLabel="Filter zurücksetzen"
@@ -489,7 +566,15 @@ export function FilterView({
 
       <div className="pane queue-pane">
         <div className="panehead">
-          <h2>Set-Korb</h2>
+          <h2>
+            Set-Korb{' '}
+            <span
+              className="infotip"
+              title="Schnellzugriff auf dein vorbereitetes Set – synchron mit Live-Match und Set-Builder."
+            >
+              ⓘ
+            </span>
+          </h2>
           <span className="aside" id="queueCount">
             {setTracks.length} {setTracks.length === 1 ? 'Track' : 'Tracks'}
           </span>
@@ -517,6 +602,7 @@ export function FilterView({
                     </div>
                     <button
                       className="sm ghost"
+                      title="Track aus dem Set-Korb entfernen"
                       onClick={() => onRemoveFromSet(t.id)}
                       aria-label={`${t.title} entfernen`}
                     >
@@ -557,11 +643,44 @@ export function FilterView({
                   </span>
                 </div>
                 <div className="btnrow">
-                  <button className="primary sm" onClick={() => onAddToSet(selectedTrack)}>
+                  <button
+                    className="primary sm"
+                    title="Fügt diesen Track zum Set-Korb hinzu"
+                    onClick={() => onAddToSet(selectedTrack)}
+                  >
                     + Set
                   </button>
-                  <button className="sm" onClick={() => onFindRekordbox(selectedTrack)}>
-                    In Rekordbox
+                  <button
+                    className="sm"
+                    title="Markiert und sucht den Track direkt in der offenen Rekordbox-App (oder öffnet Suchhilfe)"
+                    onClick={() =>
+                      onRekordboxAction
+                        ? onRekordboxAction(selectedTrack, 'reveal')
+                        : onFindRekordbox(selectedTrack)
+                    }
+                  >
+                    ↗ In Rekordbox
+                  </button>
+                  <button
+                    className="sm"
+                    title="Sucht den Track in Rekordbox und lädt ihn direkt in Deck A (Deck 1)"
+                    onClick={() => onRekordboxAction?.(selectedTrack, 'deck1')}
+                  >
+                    ▶ Deck A
+                  </button>
+                  <button
+                    className="sm"
+                    title="Sucht den Track in Rekordbox und lädt ihn direkt in Deck B (Deck 2)"
+                    onClick={() => onRekordboxAction?.(selectedTrack, 'deck2')}
+                  >
+                    ▶ Deck B
+                  </button>
+                  <button
+                    className="sm ghost"
+                    title="Öffnet Track-Details, Dateipfad im Explorer und kopierbaren Suchtext"
+                    onClick={() => onFindRekordbox(selectedTrack)}
+                  >
+                    ⌕ Details
                   </button>
                 </div>
               </div>
@@ -574,7 +693,12 @@ export function FilterView({
         </div>
 
         <div className="panefoot">
-          <button className="primary w100" id="queueOpen" onClick={onOpenSetBuilder}>
+          <button
+            className="primary w100"
+            id="queueOpen"
+            title="Öffnet den Set-Builder mit Reihenfolge-Check, Übergangsanalyse und Export (M3U8 / XML / CSV)"
+            onClick={onOpenSetBuilder}
+          >
             Set-Builder öffnen
           </button>
           <div className="hint" style={{ marginTop: 9 }}>

@@ -96,7 +96,12 @@ export function HardwareModal({
             <span className={`dot ${stateDot}`} />
             <strong>{stateLabel}</strong>
           </div>
-          <button className="sm" disabled={busy} onClick={onRefresh}>
+          <button
+            className="sm"
+            disabled={busy}
+            title="Aktualisiert verfügbare Netzwerk-Adapter sowie angeschlossene Rekordbox-USB/SD-Exporte"
+            onClick={onRefresh}
+          >
             ↻ Netze &amp; USB prüfen
           </button>
         </div>
@@ -115,6 +120,7 @@ export function HardwareModal({
             </label>
             <select
               id="hwInterface"
+              title="Wählt die Netzwerkkarte aus, über die Pioneer CDJ/XDJ-Player per Pro DJ Link gefunden werden"
               value={selectedInterface}
               onChange={(e) => onSelectInterface(e.target.value)}
             >
@@ -126,7 +132,10 @@ export function HardwareModal({
               ))}
             </select>
 
-            <label className="checkrow">
+            <label
+              className="checkrow"
+              title="Meldet airdox als passives virtuelles CDJ im Pro-DJ-Link-Netzwerk an (hilft, wenn Player sonst keine Statuspakete senden)"
+            >
               <input
                 type="checkbox"
                 checked={announce}
@@ -140,6 +149,7 @@ export function HardwareModal({
             </label>
             <select
               id="hwMasterSource"
+              title="Legt fest, ob die Live-Referenz automatisch dem Master-Deck folgt oder fest auf einen bestimmten Player fixiert wird"
               value={masterSource ?? ''}
               onChange={(e) => onMasterSourceChange(e.target.value ? Number(e.target.value) : null)}
             >
@@ -155,16 +165,23 @@ export function HardwareModal({
               <button
                 className="primary sm"
                 disabled={busy || !selectedInterface}
+                title="Startet den passiven Pro-DJ-Link-Empfänger auf dem gewählten Netzwerk-Interface"
                 onClick={onConnect}
               >
                 Pro DJ Link verbinden
               </button>
-              <button className="sm" disabled={busy} onClick={onDemo}>
+              <button
+                className="sm"
+                disabled={busy}
+                title="Aktiviert simulierte Live-Decks zum Testen ohne echte CDJ/XDJ-Hardware"
+                onClick={onDemo}
+              >
                 Demo-Link
               </button>
               <button
                 className="sm ghost"
                 disabled={busy || live.state === 'off'}
+                title="Beendet die aktive Pro-DJ-Link- oder Demo-Verbindung"
                 onClick={onDisconnect}
               >
                 Trennen
@@ -187,6 +204,7 @@ export function HardwareModal({
                     <div
                       key={d.deck}
                       className={`hw-deck ${isActive ? 'active' : ''}`}
+                      title={`Klicken, um Deck ${d.deck} fest als Live-Referenz für harmonische Vorschläge auszuwählen`}
                       onClick={() => onDeckChange(d.deck)}
                       role="button"
                       tabIndex={0}
@@ -202,10 +220,20 @@ export function HardwareModal({
                           Deck {d.deck} · {d.name}
                         </strong>
                         <div className="flex" style={{ gap: 4 }}>
-                          {d.master && <span className="pill green">MASTER</span>}
-                          {d.playing && <span className="pill blue">PLAY</span>}
+                          {d.master && (
+                            <span className="pill green" title="Aktives Tempo-Master-Deck">
+                              MASTER
+                            </span>
+                          )}
+                          {d.playing && (
+                            <span className="pill blue" title="Deck spielt gerade aktiv ab">
+                              PLAY
+                            </span>
+                          )}
                           {d.fader != null && (
-                            <span className="pill">Fader {Math.round(d.fader * 100)} %</span>
+                            <span className="pill" title="Aktuelle Kanalfader-Stellung (0–100 %)">
+                              Fader {Math.round(d.fader * 100)} %
+                            </span>
                           )}
                           {d.key && <KeyBadge value={d.key} />}
                         </div>
@@ -222,6 +250,7 @@ export function HardwareModal({
                         {d.libraryId && (
                           <button
                             className="sm ghost"
+                            title="Springt direkt zu diesem Track in der Live-Match-Tabelle"
                             onClick={(e) => {
                               e.stopPropagation()
                               onInspectTrack(d.libraryId!)
@@ -255,6 +284,7 @@ export function HardwareModal({
           <div className="hw-bind-row">
             <select
               aria-label="Player für USB-Binding"
+              title="Ziel-Player-Nummer auswählen (1–15), dem das USB/SD-Medium zugeordnet wird"
               value={bindSource}
               onChange={(e) => setBindSource(Number(e.target.value))}
             >
@@ -266,6 +296,7 @@ export function HardwareModal({
             </select>
             <select
               aria-label="Slot für USB-Binding"
+              title="Medien-Slot am Player auswählen (USB 1, USB 2 oder SD-Card)"
               value={bindSlot}
               onChange={(e) => setBindSlot(Number(e.target.value))}
             >
@@ -276,6 +307,7 @@ export function HardwareModal({
             <button
               className="sm"
               disabled={busy}
+              title="Wählt eine exportLibrary.db oder export.pdb Datei vom USB/SD-Stick aus (Read-Only)"
               onClick={() => onBindMedia(bindSource, bindSlot)}
             >
               USB-Datenbank wählen …
@@ -292,6 +324,7 @@ export function HardwareModal({
                   <button
                     className="sm"
                     disabled={busy}
+                    title={`Bindet diese Rekordbox-Export-Datenbank schreibgeschützt an Player ${bindSource}`}
                     onClick={() => onBindMedia(bindSource, bindSlot, path)}
                   >
                     An Player {bindSource} ({slotLabels[bindSlot]}) binden
@@ -316,6 +349,7 @@ export function HardwareModal({
                   <button
                     className="sm ghost"
                     disabled={busy}
+                    title="Hebt die Read-Only-Zuordnung dieses Mediums vom Player wieder auf"
                     onClick={() => onUnbindMedia(m.source, m.slot)}
                   >
                     Lösen

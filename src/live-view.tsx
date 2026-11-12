@@ -144,6 +144,7 @@ export function LiveView({
   onAddToSet,
   onPinAsReference,
   onFindRekordbox,
+  onRekordboxAction,
   setIds,
   setCount,
   onGoFilterStudio,
@@ -296,6 +297,7 @@ export function LiveView({
           onPinReference={onPinAsReference}
           onAddToSet={onAddToSet}
           onFindRekordbox={onFindRekordbox}
+          onRekordboxAction={onRekordboxAction}
           setIds={setIds}
           emptyTitle="Keine passenden Tracks für diese Kombination."
           emptyActionLabel={
@@ -434,10 +436,35 @@ export function LiveView({
                   </button>
                   <button
                     className="sm"
-                    title="Öffnet eine Suchhilfe & Dateipfad-Vorschau, um den Track direkt in Rekordbox aufzufinden (Read-Only)"
+                    title="Markiert und sucht den Track direkt in der offenen Rekordbox-App (oder öffnet Suchhilfe)"
+                    onClick={() =>
+                      onRekordboxAction
+                        ? onRekordboxAction(selectedTrack, 'reveal')
+                        : onFindRekordbox(selectedTrack)
+                    }
+                  >
+                    ↗ In Rekordbox
+                  </button>
+                  <button
+                    className="sm"
+                    title="Sucht den Track in Rekordbox und lädt ihn direkt in Deck A (Deck 1)"
+                    onClick={() => onRekordboxAction?.(selectedTrack, 'deck1')}
+                  >
+                    ▶ Deck A
+                  </button>
+                  <button
+                    className="sm"
+                    title="Sucht den Track in Rekordbox und lädt ihn direkt in Deck B (Deck 2)"
+                    onClick={() => onRekordboxAction?.(selectedTrack, 'deck2')}
+                  >
+                    ▶ Deck B
+                  </button>
+                  <button
+                    className="sm ghost"
+                    title="Öffnet Track-Details, Dateipfad im Explorer und kopierbaren Suchtext"
                     onClick={() => onFindRekordbox(selectedTrack)}
                   >
-                    In Rekordbox
+                    ⌕ Details
                   </button>
                 </div>
               </div>

@@ -5,11 +5,15 @@ import {
   camelotColor,
   count,
   duration,
+  exportM3u8Playlist,
+  exportRekordboxXml,
   exportSetCsv,
   harmonicTransition,
   message,
+  rekordboxTransport,
   relatedKeys,
   request,
+  revealFile,
   type Track,
 } from '../../src/api'
 import {
@@ -169,6 +173,123 @@ describe('api.ts', () => {
 
     vi.advanceTimersByTime(2000)
     expect(revokeUrlSpy).toHaveBeenCalledWith('blob:test-csv')
+    vi.useRealTimers()
+  })
+
+  it('covers rekordboxTransport, revealFile, exportM3u8Playlist and exportRekordboxXml at 100%', async () => {
+    const reqMock = vi.fn().mockResolvedValue({
+      ok: true,
+      reason: 'sent',
+      action: 'deck1',
+      deck: 1,
+      query: 'Pulse Klang',
+      path: 'E:/Music/pulse.mp3',
+      copied: true,
+      message: 'An Deck 1 gesendet',
+    })
+    const revealMock = vi.fn().mockResolvedValue(true)
+    window.cuepoint = {
+      request: reqMock,
+      choose: vi.fn(),
+      window: vi.fn(),
+      revealFile: revealMock,
+    }
+
+    await expect(
+      rekordboxTransport({ id: '1', action: 'deck1', query: 'Pulse Klang', path: 'E:/Music/pulse.mp3' }),
+    ).resolves.toMatchObject({ ok: true, deck: 1 })
+    expect(reqMock).toHaveBeenCalledWith('rekordboxTransport', {
+      id: '1',
+      action: 'deck1',
+      query: 'Pulse Klang',
+      path: 'E:/Music/pulse.mp3',
+    })
+
+    await expect(revealFile('E:/Music/pulse.mp3')).resolves.toBe(true)
+    expect(revealMock).toHaveBeenCalledWith('E:/Music/pulse.mp3')
+
+    // Missing revealFile fallback
+    window.cuepoint = {
+      request: reqMock,
+      choose: vi.fn(),
+      window: vi.fn(),
+    }
+    await expect(revealFile('E:/Music/pulse.mp3')).resolves.toBe(false)
+
+    // M3U8 & Rekordbox XML exports
+    vi.useFakeTimers()
+    const clickSpy = vi.fn()
+    const createEl = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = createEl(tag)
+      if (tag === 'a') el.click = clickSpy
+      return el
+    })
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-export')
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    const tracks: Track[] = [
+      {
+        id: '1',
+        title: 'Dark & <Pulse>',
+        artist: 'Klang "A"',
+        genre: 'Techno',
+        bpm: 138,
+        key: '8A',
+        rating: 5,
+        seconds: 320,
+        year: 2024,
+        path: 'E:\\Music\\set & mix.mp3',
+      },
+      {
+        id: '2',
+        title: '',
+        artist: '',
+        genre: 'Ambient',
+        bpm: null,
+        key: null,
+        rating: 0,
+        seconds: null,
+        year: null,
+        path: '/Users/dj/ambient track.wav',
+      },
+      {
+        id: '3',
+        title: 'No Path Track',
+        artist: 'Nova',
+        genre: 'House',
+        bpm: 124,
+        key: '6A',
+        rating: 3,
+        seconds: 200,
+        year: 2022,
+      },
+    ]
+
+    const m3uDefault = exportM3u8Playlist(tracks)
+    expect(m3uDefault).toContain('#EXTM3U')
+    expect(m3uDefault).toContain('#EXTINF:320,Klang "A" - Dark & <Pulse>')
+    expect(m3uDefault).toContain('E:\\Music\\set & mix.mp3')
+    expect(m3uDefault).toContain('#EXTINF:-1,Unbekannt - Ohne Titel')
+    expect(m3uDefault).toContain('Nova - No Path Track')
+
+    const m3uCustom = exportM3u8Playlist(tracks, 'custom.m3u8')
+    expect(m3uCustom).toContain('#EXTM3U')
+
+    const xmlDefault = exportRekordboxXml(tracks)
+    expect(xmlDefault).toContain('<DJ_PLAYLISTS Version="1.0.0">')
+    expect(xmlDefault).toContain('<COLLECTION Entries="3">')
+    expect(xmlDefault).toContain('Name="Dark &amp; &lt;Pulse&gt;" Artist="Klang &quot;A&quot;"')
+    expect(xmlDefault).toContain('Location="file://localhost/E:/Music/set%20&amp;%20mix.mp3"')
+    expect(xmlDefault).toContain('Location="file://localhost/Users/dj/ambient%20track.wav"')
+    expect(xmlDefault).toContain('<NODE Name="airdox Set" Type="1" KeyType="0" Entries="3">')
+
+    const xmlCustom = exportRekordboxXml(tracks, "Peak & 'Set'", 'peak.xml')
+    expect(xmlCustom).toContain('Name="Peak &amp; &apos;Set&apos;"')
+    expect(clickSpy).toHaveBeenCalledTimes(4)
+
+    vi.advanceTimersByTime(2000)
+    expect(revokeSpy).toHaveBeenCalledWith('blob:test-export')
     vi.useRealTimers()
   })
 })

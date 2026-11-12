@@ -75,6 +75,7 @@ describe('TrackTable', () => {
     const onAddToSet = vi.fn()
     const onPinReference = vi.fn()
     const onFindRekordbox = vi.fn()
+    const onRekordboxAction = vi.fn()
     const onEmptyAction = vi.fn()
 
     const { container, rerender } = render(
@@ -93,6 +94,7 @@ describe('TrackTable', () => {
         onAddToSet={onAddToSet}
         onPinReference={onPinReference}
         onFindRekordbox={onFindRekordbox}
+        onRekordboxAction={onRekordboxAction}
       />,
     )
 
@@ -124,18 +126,30 @@ describe('TrackTable', () => {
     expect(onVisible).toHaveBeenCalledWith(defaultColumns)
     fireEvent.keyDown(window, { key: 'Escape' })
 
-    // Row right-click context menu: pin, add, find, and backdrop close
+    // Row right-click context menu: pin, rekordbox transport actions, add, details, and backdrop close
     const row2 = container.querySelector('.track-row[data-track-id="t2"]')!
     fireEvent.contextMenu(row2, { clientX: 50, clientY: 60 })
     fireEvent.click(screen.getByRole('button', { name: /Als Referenz setzen/i }))
     expect(onPinReference).toHaveBeenCalledWith(sampleTracks[1])
 
     fireEvent.contextMenu(row2, { clientX: 50, clientY: 60 })
+    fireEvent.click(screen.getByRole('button', { name: /In Rekordbox anzeigen/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[1], 'reveal')
+
+    fireEvent.contextMenu(row2, { clientX: 50, clientY: 60 })
+    fireEvent.click(screen.getByRole('button', { name: /In Deck A laden/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[1], 'deck1')
+
+    fireEvent.contextMenu(row2, { clientX: 50, clientY: 60 })
+    fireEvent.click(screen.getByRole('button', { name: /In Deck B laden/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[1], 'deck2')
+
+    fireEvent.contextMenu(row2, { clientX: 50, clientY: 60 })
     fireEvent.click(screen.getByRole('button', { name: /Zum Set hinzufügen/i }))
     expect(onAddToSet).toHaveBeenCalledWith(sampleTracks[1])
 
     fireEvent.contextMenu(row2, { clientX: 50, clientY: 60 })
-    fireEvent.click(screen.getByRole('button', { name: /In Rekordbox finden/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Details \/ Explorer/i }))
     expect(onFindRekordbox).toHaveBeenCalledWith(sampleTracks[1])
 
     // Close context menu via backdrop
@@ -151,6 +165,29 @@ describe('TrackTable', () => {
     fireEvent.keyDown(grid, { key: 'ArrowUp' })
     fireEvent.keyDown(grid, { key: 'Home' })
     fireEvent.keyDown(grid, { key: 'End' })
+
+    // Without onRekordboxAction, "In Rekordbox anzeigen" falls back to onFindRekordbox
+    rerender(
+      <TrackTable
+        data={sampleTracks}
+        sorting={[]}
+        onSort={onSort}
+        selected={null}
+        onSelect={onSelect}
+        busy={false}
+        revision="1b"
+        visible={defaultColumns}
+        onVisible={onVisible}
+        reference={null}
+        setIds={new Set()}
+        onAddToSet={onAddToSet}
+        onPinReference={onPinReference}
+        onFindRekordbox={onFindRekordbox}
+      />,
+    )
+    fireEvent.contextMenu(container.querySelector('.track-row[data-track-id="t1"]')!, { clientX: 50, clientY: 60 })
+    fireEvent.click(screen.getByRole('button', { name: /In Rekordbox anzeigen/i }))
+    expect(onFindRekordbox).toHaveBeenCalledWith(sampleTracks[0])
 
     // Empty state + empty action button
     rerender(
@@ -181,14 +218,16 @@ describe('TrackTable', () => {
 
 describe('live-view.tsx', () => {
   it('maps liveSortToCascade and exercises all LiveView controls, filters, sort headers and inspector', () => {
-    expect(liveSortToCascade('bpmasc')[0]).toEqual({ field: 'bpm', dir: 'asc' })
-    expect(liveSortToCascade('bpmdesc')[0]).toEqual({ field: 'bpm', dir: 'desc' })
-    expect(liveSortToCascade('rating')[0]).toEqual({ field: 'rating', dir: 'desc' })
-    expect(liveSortToCascade('yearnew')[0]).toEqual({ field: 'year', dir: 'desc' })
-    expect(liveSortToCascade('yearold')[0]).toEqual({ field: 'year', dir: 'asc' })
-    expect(liveSortToCascade('artist')[0]).toEqual({ field: 'artist', dir: 'asc' })
-    expect(liveSortToCascade('key')[0]).toEqual({ field: 'key', dir: 'asc' })
-    expect(liveSortToCascade('playcount')[0]).toEqual({ field: 'plays', dir: 'asc' })
+    expect(liveSortToCascade('bpmasc')[0]).toEqual({ id: 'bpm', desc: false })
+    expect(liveSortToCascade('bpmdesc')[0]).toEqual({ id: 'bpm', desc: true })
+    expect(liveSortToCascade('rating')[0]).toEqual({ id: 'rating', desc: true })
+    expect(liveSortToCascade('yearnew')[0]).toEqual({ id: 'year', desc: true })
+    expect(liveSortToCascade('yearold')[0]).toEqual({ id: 'year', desc: false })
+    expect(liveSortToCascade('artist')[0]).toEqual({ id: 'artist', desc: false })
+    expect(liveSortToCascade('key')[0]).toEqual({ id: 'key', desc: false })
+    expect(liveSortToCascade('playcount')[0]).toEqual({ id: 'plays', desc: false })
+    expect(liveSortToCascade('title')[0]).toEqual({ id: 'title', desc: false })
+    expect(liveSortToCascade('genre')[0]).toEqual({ id: 'genre', desc: false })
 
     const onSearchChange = vi.fn()
     const onSortCodeChange = vi.fn()
@@ -202,6 +241,7 @@ describe('live-view.tsx', () => {
     const onGoSetBuilder = vi.fn()
     const onAddToSet = vi.fn()
     const onFindRekordbox = vi.fn()
+    const onRekordboxAction = vi.fn()
 
     const { container, rerender } = render(
       <LiveView
@@ -257,6 +297,7 @@ describe('live-view.tsx', () => {
         onAddToSet={onAddToSet}
         onPinAsReference={vi.fn()}
         onFindRekordbox={onFindRekordbox}
+        onRekordboxAction={onRekordboxAction}
         setIds={new Set(['t1'])}
         setCount={1}
         onGoFilterStudio={onGoFilterStudio}
@@ -285,6 +326,10 @@ describe('live-view.tsx', () => {
     expect(onSortCodeChange).toHaveBeenCalledWith('key')
     fireEvent.click(screen.getByText('Plays'))
     expect(onSortCodeChange).toHaveBeenCalledWith('playcount')
+    fireEvent.click(screen.getByText('Titel'))
+    expect(onSortCodeChange).toHaveBeenCalledWith('title')
+    fireEvent.click(screen.getByText('Genre'))
+    expect(onSortCodeChange).toHaveBeenCalledWith('genre')
 
     fireEvent.click(container.querySelector('#useBpm')!)
     expect(onUseBpmChange).toHaveBeenCalledWith(false)
@@ -300,7 +345,13 @@ describe('live-view.tsx', () => {
     const inspector = container.querySelector('#liveInspector')!
     fireEvent.click(within(inspector as HTMLElement).getByRole('button', { name: '+ Set' }))
     expect(onAddToSet).toHaveBeenCalledWith(sampleTracks[0])
-    fireEvent.click(within(inspector as HTMLElement).getByRole('button', { name: 'In Rekordbox' }))
+    fireEvent.click(within(inspector as HTMLElement).getByRole('button', { name: /In Rekordbox/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[0], 'reveal')
+    fireEvent.click(within(inspector as HTMLElement).getByRole('button', { name: /Deck A/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[0], 'deck1')
+    fireEvent.click(within(inspector as HTMLElement).getByRole('button', { name: /Deck B/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[0], 'deck2')
+    fireEvent.click(within(inspector as HTMLElement).getByRole('button', { name: /Details/i }))
     expect(onFindRekordbox).toHaveBeenCalledWith(sampleTracks[0])
 
     fireEvent.click(container.querySelector('#hardwareConfigBtn')!)
@@ -359,7 +410,7 @@ describe('live-view.tsx', () => {
     expect(screen.getByText('Ohne zusätzliche Einschränkung')).toBeInTheDocument()
     expect(screen.getByText('Klicke einen Track in der Tabelle.')).toBeInTheDocument()
 
-    // Third rerender with yearnew -> clicking Jahr exercises 'yearold' branch + search clear + empty-action button
+    // Third rerender with yearnew -> clicking Jahr exercises 'yearold' branch + fallback without onRekordboxAction
     rerender(
       <LiveView
         active
@@ -392,7 +443,7 @@ describe('live-view.tsx', () => {
         revision={3}
         visibleColumns={['title', 'artist', 'bpm', 'key', 'genre', 'rating', 'year', 'plays'] as MetadataId[]}
         onVisibleColumnsChange={vi.fn()}
-        selectedTrack={null}
+        selectedTrack={sampleTracks[0]}
         onSelectTrack={vi.fn()}
         onAddToSet={onAddToSet}
         onPinAsReference={vi.fn()}
@@ -407,6 +458,8 @@ describe('live-view.tsx', () => {
     )
     fireEvent.click(screen.getByText('Jahr'))
     expect(onSortCodeChange).toHaveBeenCalledWith('yearold')
+    fireEvent.click(within(container.querySelector('#liveInspector')! as HTMLElement).getByRole('button', { name: /In Rekordbox/i }))
+    expect(onFindRekordbox).toHaveBeenCalledWith(sampleTracks[0])
   })
 })
 
@@ -439,6 +492,8 @@ describe('filter-view.tsx', () => {
     const onRemoveFromSet = vi.fn()
     const onOpenSetBuilder = vi.fn()
     const onFindRekordbox = vi.fn()
+    const onRekordboxAction = vi.fn()
+    const onExportFilteredM3u8 = vi.fn()
 
     const { container, rerender } = render(
       <FilterView
@@ -478,6 +533,8 @@ describe('filter-view.tsx', () => {
         onAddToSet={onAddToSet}
         onRemoveFromSet={onRemoveFromSet}
         onFindRekordbox={onFindRekordbox}
+        onRekordboxAction={onRekordboxAction}
+        onExportFilteredM3u8={onExportFilteredM3u8}
         setTracks={fiveSetTracks}
         setIds={new Set(['t1'])}
         onOpenSetBuilder={onOpenSetBuilder}
@@ -520,6 +577,9 @@ describe('filter-view.tsx', () => {
     fireEvent.change(container.querySelector('#filterSearch')!, { target: { value: 'Solar' } })
     expect(onSearchChange).toHaveBeenCalledWith('Solar')
 
+    fireEvent.click(container.querySelector('#exportFilterM3u8')!)
+    expect(onExportFilteredM3u8).toHaveBeenCalledWith(sampleTracks)
+
     // Sort designer open, edit, move up/down, toggle direction, add/remove stage, close
     fireEvent.click(container.querySelector('#toggleSortDesigner')!)
     fireEvent.change(screen.getByLabelText('Sortierfeld Stufe 1'), { target: { value: 'artist' } })
@@ -545,7 +605,13 @@ describe('filter-view.tsx', () => {
 
     const filterInspector = container.querySelector('#filterInspector')!
     fireEvent.click(within(filterInspector as HTMLElement).getByRole('button', { name: '+ Set' }))
-    fireEvent.click(within(filterInspector as HTMLElement).getByRole('button', { name: 'In Rekordbox' }))
+    fireEvent.click(within(filterInspector as HTMLElement).getByRole('button', { name: /In Rekordbox/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[0], 'reveal')
+    fireEvent.click(within(filterInspector as HTMLElement).getByRole('button', { name: /Deck A/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[0], 'deck1')
+    fireEvent.click(within(filterInspector as HTMLElement).getByRole('button', { name: /Deck B/i }))
+    expect(onRekordboxAction).toHaveBeenCalledWith(sampleTracks[0], 'deck2')
+    fireEvent.click(within(filterInspector as HTMLElement).getByRole('button', { name: /Details/i }))
     expect(onFindRekordbox).toHaveBeenCalledWith(sampleTracks[0])
 
     // Empty search / no sort stages / empty set / empty selection
@@ -599,6 +665,8 @@ describe('set-view.tsx & hardware-modal.tsx', () => {
     const onRemoveTrack = vi.fn()
     const onSelectTrack = vi.fn()
     const onExportCsv = vi.fn()
+    const onExportM3u8 = vi.fn()
+    const onExportXml = vi.fn()
     const onClearSet = vi.fn()
 
     const { rerender } = render(
@@ -611,6 +679,8 @@ describe('set-view.tsx & hardware-modal.tsx', () => {
         onSelectTrack={onSelectTrack}
         onFindTracks={vi.fn()}
         onExportCsv={onExportCsv}
+        onExportM3u8={onExportM3u8}
+        onExportXml={onExportXml}
         onClearSet={onClearSet}
         onExplainImport={vi.fn()}
       />,
@@ -628,7 +698,11 @@ describe('set-view.tsx & hardware-modal.tsx', () => {
     fireEvent.click(screen.getByLabelText('Solar Drift aus Set entfernen'))
     expect(onRemoveTrack).toHaveBeenCalledWith('t2')
 
-    fireEvent.click(screen.getByRole('button', { name: /Setliste als CSV/i }))
+    fireEvent.click(screen.getByRole('button', { name: /M3U8-Playlist/i }))
+    expect(onExportM3u8).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: /Rekordbox XML/i }))
+    expect(onExportXml).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: /CSV/i }))
     expect(onExportCsv).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: 'Set leeren' }))

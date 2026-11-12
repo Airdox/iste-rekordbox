@@ -1,4 +1,3 @@
-import json
 import math
 import operator
 import re
@@ -25,7 +24,6 @@ SEARCH_FIELDS = ("title", "artist", "genre", "album", "label", "comment", "path"
 SORTS = {field: f"{field}_sort" for field in TEXT_SORTS}
 SORTS.update({field: field for field in ("id", *INTEGER, "bpm", "rating")})
 SORTS["key"] = "key_sort"
-OPERATORS = {"eq": "=", "gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "neq": "!="}
 NP_OPS = {
     "eq": operator.eq,
     "neq": operator.ne,
@@ -34,6 +32,11 @@ NP_OPS = {
     "gt": operator.gt,
     "lt": operator.lt,
 }
+_NOCASE_TABLE = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
+def _sqlite_nocase(value):
+    return value.translate(_NOCASE_TABLE)
 
 
 def folded(value):
@@ -147,14 +150,10 @@ class Library:
         self.bpm_bounds = [math.floor(low), math.ceil(high)] if low is not None else [0, 200]
         self._tracks = {track["id"]: track for track in normalized}
         self._list_rows = {track["id"]: {field: track[field] for field in LIST_FIELDS} for track in normalized}
-        self._cached_facet = lru_cache(maxsize=48)(self._facet)
-        self._cached_contains = lru_cache(maxsize=64)(self._contains)
         self._cached_contains_lut = lru_cache(maxsize=128)(self._contains_lut)
         self._init_index(normalized, folded_fields, ranks, search_texts)
         self._projection_fields = ()
         self._projection_rows = {}
-        for field in ("genre", "count", "bpm", "key"):
-            self._cached_facet(field, "", ())
         self.by_file = {}
         self.by_metadata = {}
         for track in normalized:
@@ -184,8 +183,15 @@ class Library:
         raw_keys = [t["key"] or "" for t in normalized]
         self._key_masks = {k: np.array([v == k for v in raw_keys], dtype=bool) for k in set(raw_keys)}
         genres = sorted({t["genre"] for t in normalized})
+        self._genre_list = genres
+        self._genre_nocase = [_sqlite_nocase(g) for g in genres]
         self._genre_vocab = {g: i for i, g in enumerate(genres)}
         self._genre_idx = np.array([self._genre_vocab[t["genre"]] for t in normalized], dtype=np.int32)
+        key_vals = sorted({t["key"] or "" for t in normalized})
+        self._key_list = key_vals
+        self._key_nocase = [_sqlite_nocase(k) for k in key_vals]
+        key_vocab = {k: i for i, k in enumerate(key_vals)}
+        self._key_idx = np.array([key_vocab[t["key"] or ""] for t in normalized], dtype=np.int32)
         self._num_raw = {}
         self._num_valid = {}
         for field in (*INTEGER, "rating", "bpm"):
@@ -199,6 +205,8 @@ class Library:
             asc = np.array([rmap[v] if v is not None else m for v in vals], dtype=np.int32)
             self._sort_asc[field] = asc
             self._sort_desc[field] = np.where(asc < m, (m - 1) - asc, m).astype(np.int32)
+        bpm_bins = (self._num_raw["bpm"] / 5.0).astype(np.int32)
+        self._bpm_bin = np.where(self._num_valid["bpm"], bpm_bins, -1)
 
     @classmethod
     def load(cls, value=None):
@@ -207,8 +215,6 @@ class Library:
         return cls(path, kind, tracks)
 
     def close(self):
-        self._cached_facet.cache_clear()
-        self._cached_contains.cache_clear()
         self._cached_contains_lut.cache_clear()
         self.conn.close()
 
@@ -218,30 +224,25 @@ class Library:
             "genres": self.genre_count, "bpmBounds": self.bpm_bounds, "withKey": self.key_count,
         }
 
-    def _facet(self, field, where, values):
-        if field == "count":
-            return self.conn.execute(f"SELECT count(*) FROM tracks {where}", values).fetchone()[0]
-        if field == "bpm":
-            return [dict(row) for row in self.conn.execute(
-                f"SELECT CAST(bpm / 5 AS INTEGER) * 5 AS bpm, count(*) AS count FROM tracks {where} "
-                "GROUP BY 1 HAVING CAST(bpm / 5 AS INTEGER) IS NOT NULL ORDER BY 1", values
-            )]
-        return [dict(row) for row in self.conn.execute(
-            f"SELECT coalesce({field},'') AS value, count(*) AS count FROM tracks "
-            f"{where} GROUP BY {field} ORDER BY count DESC, value COLLATE NOCASE", values
-        )]
+    @staticmethod
+    def _group_facet(idx_arr, vocab_list, nocase_list, mask):
+        selected = idx_arr[mask]
+        if not selected.size:
+            return []
+        counts = np.bincount(selected)
+        nz = np.flatnonzero(counts)
+        items = [(int(counts[i]), nocase_list[i], vocab_list[i]) for i in nz.tolist()]
+        items.sort(key=lambda item: (-item[0], item[1]))
+        return [{"value": val, "count": cnt} for cnt, _, val in items]
 
-    def _contains(self, field, needle):
-        values = self._text_values[field]
-        matches = [index for index, text in enumerate(values) if needle in text]
-        column = SORTS[field]
-        if not matches:
-            return "0", ()
-        if len(matches) == len(values):
-            return f"{column} IS NOT NULL", ()
-        if len(matches) > 128:
-            return f"{column} IN (SELECT value FROM json_each(?))", (json.dumps(matches),)
-        return f"{column} IN ({','.join('?' for _ in matches)})", tuple(matches)
+    def _histogram_from_mask(self, mask):
+        bins = self._bpm_bin[mask]
+        bins = bins[bins >= 0]
+        if not bins.size:
+            return []
+        counts = np.bincount(bins)
+        nz = np.flatnonzero(counts)
+        return [{"bpm": int(b) * 5, "count": int(counts[b])} for b in nz.tolist()]
 
     def _contains_lut(self, field, needle):
         values = self._text_values[field]
@@ -253,65 +254,6 @@ class Library:
         lut = np.zeros(len(values) + 1, dtype=bool)
         lut[matches] = True
         return lut
-
-    def _rule(self, rule):
-        if not isinstance(rule, dict):
-            return "", ()
-        field, operation, value = rule.get("id"), rule.get("op"), rule.get("value")
-        if not isinstance(field, str) or field not in SORTS or not isinstance(operation, str):
-            return "", ()
-        expression = SORTS[field]
-        if operation == "empty":
-            return f"{expression} IS NULL", ()
-        if operation == "range":
-            if field in (*INTEGER, "rating", "bpm"):
-                bounds = _parse_range(value)
-                return (f"{expression} BETWEEN ? AND ?", bounds) if bounds else ("0", ())
-            parts = [p.strip() for p in re.split(r"\.\.|;|,|\s+bis\s+|\s+[–—-]\s+", str(value or "").strip())]
-            if len(parts) != 2:
-                return "0", ()
-            if field == "key":
-                lo, hi = _key_rank(camelot(parts[0])), _key_rank(camelot(parts[1]))
-                if lo is None or hi is None:
-                    return "0", ()
-                return f"{expression} BETWEEN ? AND ?", (min(lo, hi), max(lo, hi))
-            if field == "id":
-                lo, hi = min(parts), max(parts)
-                return f"{expression} BETWEEN ? AND ?", (lo, hi)
-            values = self._text_values[field]
-            lo_t, hi_t = folded(parts[0]), folded(parts[1])
-            if lo_t > hi_t:
-                lo_t, hi_t = hi_t, lo_t
-            return f"{expression} >= ? AND {expression} < ?", (bisect_left(values, lo_t), bisect_right(values, hi_t))
-        if operation == "contains" and isinstance(value, (str, int, float)) and str(value):
-            if field in TEXT_SORTS:
-                return self._cached_contains(field, folded(value))
-            column = f"lower({field})" if field in ("key", "id") else expression
-            return f"instr({column}, ?) > 0", (folded(value),)
-        if operation not in OPERATORS:
-            return "", ()
-        if field in TEXT_SORTS:
-            values = self._text_values[field]
-            text = folded(str(value).strip()) if value is not None else ""
-            if text == "":
-                if operation in ("eq", "neq"):
-                    return f"{expression} IS {'NOT ' if operation == 'neq' else ''}NULL", ()
-                return "", ()
-            first, after = bisect_left(values, text), bisect_right(values, text)
-            if operation in ("eq", "neq"):
-                if first == after:
-                    return ("0" if operation == "eq" else f"{expression} IS NOT NULL"), ()
-                return f"{expression} {OPERATORS[operation]} ?", (first,)
-            if operation in ("gte", "gt"):
-                return f"{expression} >= ?", (first if operation == "gte" else after,)
-            return f"{expression} < ?", (after if operation == "lte" else first,)
-        if field == "key":
-            value = _key_rank(camelot(value))
-        elif field == "id":
-            value = str(value).strip() if value is not None else ""
-        else:
-            value = number(value)
-        return (f"{expression} {OPERATORS[operation]} ?", (value,)) if value is not None else ("0", ())
 
     def _apply_rule(self, mask, rule):
         if not isinstance(rule, dict):
@@ -378,7 +320,7 @@ class Library:
             sub[[self._id_pos[r[0]] for r in rows]] = True
             mask &= sub
             return True
-        if operation not in OPERATORS:
+        if operation not in NP_OPS:
             return True
         op_fn = NP_OPS[operation]
         if field in TEXT_SORTS:
@@ -497,86 +439,58 @@ class Library:
                     "ms": round((perf_counter() - start) * 1000, 3)}
         mask = np.ones(self.total, dtype=bool)
         possible = True
-        conditions, params = [], []
-
-        def where():
-            return f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         def select_many(field, selected):
             nonlocal mask, possible
-            if isinstance(selected, list) and selected:
-                values = list(dict.fromkeys(value for value in selected if isinstance(value, str)))
-                if not values:
-                    return
-                if include_facets:
-                    sql_vals = list(values)
-                    match_missing = field == "key" and "" in sql_vals
-                    if match_missing:
-                        sql_vals.remove("")
-                    predicate = []
-                    if sql_vals:
-                        predicate.append(f"{field} IN ({','.join('?' for _ in sql_vals)})")
-                    if match_missing:
-                        predicate.append(f"{field} IS NULL")
-                    if predicate:
-                        conditions.append(f"({' OR '.join(predicate)})")
-                        params.extend(sql_vals)
-                if not possible:
-                    return
-                if field == "genre":
-                    g_ids = [self._genre_vocab[v] for v in values if v in self._genre_vocab]
-                    if not g_ids:
-                        possible = False
-                    elif len(g_ids) == 1:
-                        mask &= (self._genre_idx == g_ids[0])
-                    else:
-                        lut = np.zeros(len(self._genre_vocab), dtype=bool)
-                        lut[g_ids] = True
-                        mask &= lut[self._genre_idx]
+            if not possible or not isinstance(selected, list) or not selected:
+                return
+            values = list(dict.fromkeys(value for value in selected if isinstance(value, str)))
+            if not values:
+                return
+            if field == "genre":
+                g_ids = [self._genre_vocab[v] for v in values if v in self._genre_vocab]
+                if not g_ids:
+                    possible = False
+                elif len(g_ids) == 1:
+                    mask &= (self._genre_idx == g_ids[0])
                 else:
-                    sub = np.zeros(self.total, dtype=bool)
-                    for v in values:
-                        km = self._key_masks.get(v)
-                        if km is not None:
-                            sub |= km
+                    lut = np.zeros(len(self._genre_vocab), dtype=bool)
+                    lut[g_ids] = True
+                    mask &= lut[self._genre_idx]
+            else:
+                sub = np.zeros(self.total, dtype=bool)
+                has_any = False
+                for v in values:
+                    km = self._key_masks.get(v)
+                    if km is not None:
+                        sub |= km
+                        has_any = True
+                if not has_any:
+                    possible = False
+                else:
                     mask &= sub
 
         def bound(field, value, op_name):
-            nonlocal mask, possible
+            nonlocal mask
+            if not possible:
+                return
             value = number(value)
             if value is not None:
-                if include_facets:
-                    conditions.append(f"{field} {OPERATORS[op_name]} ?")
-                    params.append(value)
-                if possible:
-                    mask &= NP_OPS[op_name](self._num_raw[field], value) & self._num_valid[field]
-
-        def facet(field):
-            return self._cached_facet(field, where(), tuple(params))
+                mask &= NP_OPS[op_name](self._num_raw[field], value) & self._num_valid[field]
 
         search = folded(str(request.get("search") or "")[:300]).split()
-        if search:
-            if include_facets:
-                search_terms = " AND ".join("instr(content, ?) > 0" for _ in search)
-                conditions.append(f"id IN (SELECT id FROM track_search WHERE {search_terms})")
-                params.extend(search)
-            if possible:
-                mask &= np.fromiter(
-                    (all(term in text for term in search) for text in self._search_texts),
-                    dtype=bool, count=self.total,
-                )
+        if search and possible:
+            mask &= np.fromiter(
+                (all(term in text for term in search) for text in self._search_texts),
+                dtype=bool, count=self.total,
+            )
         if isinstance(request.get("rules"), list):
             for rule in request["rules"]:
-                if include_facets:
-                    predicate, values = self._rule(rule)
-                    if predicate:
-                        conditions.append(predicate)
-                        params.extend(values)
                 if possible and not self._apply_rule(mask, rule):
                     possible = False
-        if isinstance(request.get("groups"), list) and request["groups"]:
+        if possible and isinstance(request.get("groups"), list) and request["groups"]:
             group_logic = "OR" if request.get("groupLogic") == "OR" else "AND"
-            group_masks, group_sqls, group_params = [], [], []
+            group_masks = []
             for group in request["groups"]:
                 if not isinstance(group, dict) or not isinstance(group.get("rules"), list):
                     continue
@@ -593,13 +507,7 @@ class Library:
                     continue
                 mode = "OR" if group.get("mode") == "OR" else "AND"
                 g_mask = np.ones(self.total, dtype=bool) if mode == "AND" else np.zeros(self.total, dtype=bool)
-                r_sqls = []
                 for rule in active_rules:
-                    if include_facets:
-                        predicate, values = self._rule(rule)
-                        if predicate:
-                            r_sqls.append(f"({predicate})")
-                            group_params.extend(values)
                     if mode == "AND":
                         if not self._apply_rule(g_mask, rule):
                             g_mask.fill(False)
@@ -608,8 +516,6 @@ class Library:
                         if self._apply_rule(r_mask, rule):
                             g_mask |= r_mask
                 group_masks.append(g_mask)
-                if include_facets and r_sqls:
-                    group_sqls.append(f"({' OR '.join(r_sqls) if mode == 'OR' else ' AND '.join(r_sqls)})")
             if group_masks:
                 if group_logic == "AND":
                     for g_mask in group_masks:
@@ -619,28 +525,27 @@ class Library:
                     for g_mask in group_masks:
                         combined |= g_mask
                     mask &= combined
-            if include_facets and group_sqls:
-                conditions.append(f"({' OR '.join(group_sqls) if group_logic == 'OR' else ' AND '.join(group_sqls)})")
-                params.extend(group_params)
         exclude_id = request.get("excludeId")
-        if isinstance(exclude_id, str):
-            if include_facets:
-                conditions.append("id != ?")
-                params.append(exclude_id)
-            if possible:
-                pos = self._id_pos.get(exclude_id)
-                if pos is not None:
-                    mask[pos] = False
-        genres = facet("genre") if include_facets else []
+        if possible and isinstance(exclude_id, str):
+            pos = self._id_pos.get(exclude_id)
+            if pos is not None:
+                mask[pos] = False
+        genres = (
+            self._group_facet(self._genre_idx, self._genre_list, self._genre_nocase, mask)
+            if (include_facets and possible) else []
+        )
         select_many("genre", request.get("genres"))
-        genre_count = facet("count") if include_facets else 0
-        histogram = facet("bpm") if include_facets else []
+        genre_count = int(np.count_nonzero(mask)) if (include_facets and possible) else 0
+        histogram = self._histogram_from_mask(mask) if (include_facets and possible) else []
         bound("bpm", request.get("bpmMin"), "gte")
         bound("bpm", request.get("bpmMax"), "lte")
-        bpm_count = facet("count") if include_facets else 0
-        keys = facet("key") if include_facets else []
+        bpm_count = int(np.count_nonzero(mask)) if (include_facets and possible) else 0
+        keys = (
+            self._group_facet(self._key_idx, self._key_list, self._key_nocase, mask)
+            if (include_facets and possible) else []
+        )
         select_many("key", request.get("keys"))
-        key_count = facet("count") if include_facets else 0
+        key_count = int(np.count_nonzero(mask)) if (include_facets and possible) else 0
         bound("rating", request.get("rating"), "gte")
         bound("year", request.get("yearMin"), "gte")
         bound("year", request.get("yearMax"), "lte")

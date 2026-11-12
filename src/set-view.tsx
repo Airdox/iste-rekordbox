@@ -11,6 +11,8 @@ type SetViewProps = {
   onSelectTrack: (track: Track) => void
   onFindTracks: () => void
   onExportCsv: () => void
+  onExportM3u8?: () => void
+  onExportXml?: () => void
   onClearSet: () => void
   onExplainImport: () => void
 }
@@ -24,6 +26,8 @@ export function SetView({
   onSelectTrack,
   onFindTracks,
   onExportCsv,
+  onExportM3u8,
+  onExportXml,
   onClearSet,
   onExplainImport,
 }: SetViewProps) {
@@ -72,12 +76,28 @@ export function SetView({
               </button>
               <button
                 className="primary"
+                id="exportSetM3u8"
+                disabled={tracks.length === 0}
+                title="Exportiert deine Setliste als M3U8-Playlist – direkt per Drag-and-drop oder Import in Rekordbox öffnen"
+                onClick={onExportM3u8}
+              >
+                ↓ &nbsp; M3U8-Playlist
+              </button>
+              <button
+                id="exportSetXml"
+                disabled={tracks.length === 0}
+                title="Exportiert deine Setliste als Rekordbox-XML-Datei (Import in Rekordbox über rekordbox.xml)"
+                onClick={onExportXml}
+              >
+                ↓ &nbsp; Rekordbox XML
+              </button>
+              <button
                 id="exportSet"
                 disabled={tracks.length === 0}
                 title="Speichert deine Setliste als UTF-8-CSV-Datei inklusive BPM, Tonart, Übergangsbewertung und Dateipfad"
                 onClick={onExportCsv}
               >
-                ↓ &nbsp; Setliste als CSV exportieren
+                ↓ &nbsp; CSV
               </button>
             </div>
           </div>

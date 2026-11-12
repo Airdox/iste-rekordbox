@@ -94,6 +94,8 @@ class Reference:
                     value = standard_text(value) or None
                 elif field == "bpm":
                     value = value / 100 if value else None
+                elif field == "year":
+                    value = value if value and value > 0 else None
                 elif field == "rating":
                     value = value or 0
                 self.fields[field][track_id] = value

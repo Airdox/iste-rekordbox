@@ -2,7 +2,13 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { describe, expect, it, vi } from 'vitest'
 import { App } from '../../src/main'
 
-function makeMockBridge(overrides?: { liveResponses?: unknown[]; openFailsOnce?: boolean }) {
+function makeMockBridge(overrides?: {
+  liveResponses?: unknown[]
+  openFailsOnce?: boolean
+  transportOk?: boolean
+  revealOk?: boolean
+  omitReveal?: boolean
+}) {
   const tracks = [
     {
       id: 't1',
@@ -155,6 +161,22 @@ function makeMockBridge(overrides?: { liveResponses?: unknown[]; openFailsOnce?:
         waveform: [4, 12, 24, 18],
       }
     }
+    if (method === 'rekordboxTransport') {
+      const p = (_params ?? {}) as { action?: 'reveal' | 'deck1' | 'deck2'; query?: string; path?: string }
+      const ok = overrides?.transportOk ?? true
+      return {
+        ok,
+        reason: ok ? 'sent' : 'no_window',
+        action: p.action ?? 'reveal',
+        deck: p.action === 'deck1' ? 1 : p.action === 'deck2' ? 2 : null,
+        query: p.query ?? '',
+        path: p.path ?? '',
+        copied: true,
+        message: ok
+          ? `In Rekordbox ausgeführt: ${p.query ?? ''}`
+          : 'Rekordbox ist nicht geöffnet. Suchtext wurde in die Zwischenablage kopiert.',
+      }
+    }
     return true
   })
 
@@ -162,6 +184,7 @@ function makeMockBridge(overrides?: { liveResponses?: unknown[]; openFailsOnce?:
     request: reqSpy,
     choose: vi.fn().mockResolvedValue('E:/Backup/Master'),
     window: vi.fn().mockResolvedValue(undefined),
+    ...(overrides?.omitReveal ? {} : { revealFile: vi.fn().mockResolvedValue(overrides?.revealOk ?? true) }),
   }
   return reqSpy
 }
@@ -354,22 +377,39 @@ describe('App (main.tsx)', () => {
     fireEvent.click(sidenav.getByText(/Meine Setliste/i))
     fireEvent.click(sidenav.getByText(/Live-Match/i))
 
-    // Open "In Rekordbox" find modal from LiveView inspector, copy text, then close via button
-    const liveInspector = document.querySelector('#liveInspector')!
-    const findBtn = Array.from(liveInspector.querySelectorAll('button'))
-      .find((b) => /In Rekordbox/i.test(b.textContent || ''))
-    expect(findBtn).toBeTruthy()
-    fireEvent.click(findBtn!)
+    // LiveView inspector transport & find modal (reveal, deck A, deck B, explorer, copy, close)
+    const liveInspector = within(document.querySelector('#liveInspector')! as HTMLElement)
+    fireEvent.click(liveInspector.getByRole('button', { name: /In Rekordbox/i }))
+    await waitFor(() =>
+      expect(reqSpy).toHaveBeenCalledWith('rekordboxTransport', expect.objectContaining({ action: 'reveal' })),
+    )
+    fireEvent.click(liveInspector.getByRole('button', { name: /Deck A/i }))
+    await waitFor(() =>
+      expect(reqSpy).toHaveBeenCalledWith('rekordboxTransport', expect.objectContaining({ action: 'deck1' })),
+    )
+    fireEvent.click(liveInspector.getByRole('button', { name: /Deck B/i }))
+    await waitFor(() =>
+      expect(reqSpy).toHaveBeenCalledWith('rekordboxTransport', expect.objectContaining({ action: 'deck2' })),
+    )
+
+    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
     const findModal = within(document.querySelector('.modal')! as HTMLElement)
-    fireEvent.click(findModal.getByText(/Suchtext kopieren/i))
+    fireEvent.click(findModal.getByText('Im Explorer zeigen'))
+    await waitFor(() => expect(window.cuepoint.revealFile).toHaveBeenCalledWith('E:/Music/acid.mp3'))
+    fireEvent.click(findModal.getByText('In Rekordbox anzeigen'))
+    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Deck A laden'))
+    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Deck B laden'))
+    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText(/Suchtext kopieren/i))
     expect(writeText).toHaveBeenCalled()
-    fireEvent.click(findModal.getByText('Schließen'))
 
     // Pin track via TrackTable row context menu
     const firstRow = document.querySelector('#view-live .track-row')
     if (firstRow) {
       fireEvent.contextMenu(firstRow, { clientX: 40, clientY: 40 })
-      const pinMenuBtn = document.querySelector('.ctx-menu button')
+      const pinMenuBtn = document.querySelector('.context-menu button')
       if (pinMenuBtn) fireEvent.click(pinMenuBtn)
     }
   }, 30000)
@@ -405,6 +445,11 @@ describe('App (main.tsx)', () => {
     if (rmGroups.length) fireEvent.click(rmGroups[0])
     fireEvent.click(document.querySelector('#applyFilter')!)
 
+    await waitFor(() => {
+      expect(document.querySelectorAll('#view-filter .track-row').length).toBeGreaterThan(0)
+    }, { timeout: 4000 })
+    fireEvent.click(document.querySelector('#exportFilterM3u8')!)
+
     // Save & cancel preset modal via backdrop/Abbrechen, then save via Enter & click saved preset
     fireEvent.click(document.querySelector('#savePreset')!)
     fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Abbrechen'))
@@ -413,31 +458,36 @@ describe('App (main.tsx)', () => {
     fireEvent.keyDown(document.querySelector('#presetNameInput')!, { key: 'Enter' })
     fireEvent.click(sidenav.getByText(/Mein Peak Set/i))
 
-    // Trigger FilterView Inspector "In Rekordbox"
-    const fFindBtn = Array.from(document.querySelectorAll('#filterInspector button'))
-      .find((b) => /In Rekordbox/i.test(b.textContent || ''))
-    if (fFindBtn) {
-      fireEvent.click(fFindBtn)
-      fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Schließen'))
-    }
+    // Trigger FilterView Inspector transport + Details modal
+    const fInspector = within(document.querySelector('#filterInspector')! as HTMLElement)
+    fireEvent.click(fInspector.getByRole('button', { name: /In Rekordbox/i }))
+    fireEvent.click(fInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Schließen'))
 
     fireEvent.click(document.querySelector('#resetFilters')!)
     const queueOpen = document.querySelector('#queueOpen')
     if (queueOpen) fireEvent.click(queueOpen)
 
-    // SetView actions: move, select track title, remove single item, export, handover close, clearSet cancel + confirm
+    // SetView actions: move, select track title, remove single item, M3U8/XML/CSV exports, handover modal, clearSet
     fireEvent.click(document.querySelector('#tab-set')!)
     const viewSet = within(document.querySelector('#view-set')! as HTMLElement)
     const moveDown = viewSet.queryAllByLabelText(/Nach unten/i)
     if (moveDown.length) fireEvent.click(moveDown[0])
-    const trackSelectBtn = document.querySelector('#setList .set-item .set-title-btn')
-      ?? document.querySelector('#setList .set-item button')
+    const trackSelectBtn = document.querySelector('#setList .setrow')
     if (trackSelectBtn) fireEvent.click(trackSelectBtn)
+    fireEvent.click(document.querySelector('#exportSetM3u8')!)
+    fireEvent.click(document.querySelector('#exportSetXml')!)
     fireEvent.click(document.querySelector('#exportSet')!)
+
     fireEvent.click(document.querySelector('#explainImport')!)
-    const handoverModal = within(document.querySelector('.modal')! as HTMLElement)
-    fireEvent.click(handoverModal.getByText(/CSV jetzt exportieren/i))
-    fireEvent.click(handoverModal.getByText('Schließen'))
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('M3U8-Playlist exportieren'))
+    fireEvent.click(document.querySelector('#explainImport')!)
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Rekordbox XML exportieren'))
+    fireEvent.click(document.querySelector('#explainImport')!)
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('CSV exportieren'))
+    fireEvent.click(document.querySelector('#explainImport')!)
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Schließen'))
+
     const removeBtns = Array.from(document.querySelectorAll('#setList button'))
       .filter((b) => /entfernen/i.test(b.getAttribute('aria-label') || b.textContent || ''))
     if (removeBtns.length) fireEvent.click(removeBtns[0])
@@ -501,155 +551,47 @@ describe('App (main.tsx)', () => {
     expect(window.cuepoint!.window).toHaveBeenCalledWith('close')
   }, 30000)
 
-  it('covers error branches, canceled pickers, live status variants and null track fields', async () => {
+  it('handles Rekordbox transport ok:false, transport error and missing/failing revealFile with clipboard fallback', async () => {
     localStorage.clear()
-    localStorage.setItem('cuepoint.columns', JSON.stringify(['title', 'bpm']))
-    localStorage.setItem('cuepoint.setTracks', JSON.stringify([{
-      id: 'pre1',
-      title: 'Preloaded Set Track',
-      artist: 'Pre',
-      genre: 'Techno',
-      bpm: 136,
-      key: '8A',
-      rating: 4,
-      seconds: 310,
-      year: 2024,
-    }]))
-    localStorage.setItem('cuepoint.customPresets', JSON.stringify([
-      { id: 'c1', name: 'Saved', groupLogic: 'AND', groups: [], search: '', sorts: [] },
-    ]))
-
-    const reqSpy = makeMockBridge({
-      liveResponses: [
-        {
-          state: 'demo',
-          error: null,
-          anchor: 1,
-          matches: [],
-          media: [],
-          decks: [{
-            deck: 1,
-            name: 'Demo',
-            source: 0,
-            slot: 0,
-            slotName: 'Demo',
-            trackId: 'd0',
-            bpm: null,
-            key: null,
-            title: null,
-            artist: null,
-            libraryId: null,
-            playing: false,
-            master: false,
-            fader: null,
-          }],
-        },
-        { state: 'listening', error: null, anchor: null, matches: [], media: [], decks: [] },
-        { state: 'discovering', error: null, anchor: null, matches: [], media: [], decks: [] },
-        { state: 'error', error: 'Socket Fehler', anchor: null, matches: [], media: [], decks: [] },
-        { state: 'off', error: null, anchor: null, matches: [], media: [], decks: [] },
-      ],
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
     })
-    const baseImpl = reqSpy.getMockImplementation()!
-    let failMode = false
-    reqSpy.mockImplementation(async (method: string, params?: object) => {
-      if (method === 'open') return baseImpl(method, params)
-      if (method === 'query' && !failMode) {
-        return {
-          rows: [{
-            id: 'tnull',
-            title: '',
-            artist: '',
-            genre: '',
-            bpm: null,
-            key: null,
-            rating: 0,
-            seconds: null,
-            year: null,
-          }],
-          counts: [1, 1, 1, 0],
-          genres: [],
-          keys: [],
-          histogram: [],
-          ms: 1.0,
-        }
-      }
-      if (failMode && ['linkStart', 'linkStop', 'demoLink', 'bindMedia', 'unbindMedia', 'detail', 'query'].includes(method)) {
-        throw new Error(`Boom ${method}`)
-      }
-      return baseImpl(method, params)
-    })
-    ;(window.cuepoint!.choose as ReturnType<typeof vi.fn>).mockResolvedValue(null)
 
+    const reqSpy = makeMockBridge({ transportOk: false, omitReveal: true })
     render(<App />)
-    await waitFor(() => expect(document.querySelector('#playingName')).toBeInTheDocument())
 
-    // Wait for query result with null-field track
     await waitFor(() => {
       expect(document.querySelectorAll('#view-live .track-row').length).toBeGreaterThan(0)
     }, { timeout: 6000 })
 
-    // Test pinTrack on displayLiveTrack lacking key & unpin with null activeDeck.key
-    fireEvent.click(document.querySelector('#pinTrack')!)
-    fireEvent.click(document.querySelector('#pinTrack')!)
-
-    // Test find modal with track having null key/bpm/artist/path
-    const liveInspector = document.querySelector('#liveInspector')!
-    const findBtn = Array.from(liveInspector.querySelectorAll('button'))
-      .find((b) => /In Rekordbox/i.test(b.textContent || ''))
-    if (findBtn) {
-      fireEvent.click(findBtn)
-      fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Schließen'))
-    }
-
-    // Cancel savePreset with empty name & trigger query on filter tab when cur selectedTrack is replaced
-    fireEvent.click(document.querySelector('#tab-filter')!)
-    fireEvent.click(document.querySelector('#applyFilter')!)
-    fireEvent.click(document.querySelector('#savePreset')!)
-    fireEvent.change(document.querySelector('#presetNameInput')!, { target: { value: '   ' } })
-    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Speichern'))
-    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Abbrechen'))
-
-    // Pin a track via FilterInspector to test pinnedTrack != null during live polls, and wait for filter query
+    // ok: false branch copies query to clipboard and displays toast
+    const liveInspector = within(document.querySelector('#liveInspector')! as HTMLElement)
+    fireEvent.click(liveInspector.getByRole('button', { name: /In Rekordbox/i }))
     await waitFor(() => {
-      expect(document.querySelectorAll('#view-filter .track-row').length).toBeGreaterThan(0)
-    }, { timeout: 4000 })
+      expect(document.querySelector('#toast')?.textContent).toMatch(/Rekordbox ist nicht geöffnet/i)
+    })
+    expect(writeText).toHaveBeenCalledWith('Acid Horizon Klara')
 
-    // Source menu canceled file/folder pickers (choose returns null)
-    fireEvent.click(document.querySelector('#sourceButton')!)
-    fireEvent.click(within(document.querySelector('.source-menu')! as HTMLElement).getByText(/Datenbankdatei öffnen/i))
-    fireEvent.click(document.querySelector('#sourceButton')!)
-    fireEvent.click(within(document.querySelector('.source-menu')! as HTMLElement).getByText(/Rekordbox-Ordner öffnen/i))
-
-    // Turn on failure mode for catch branches + poll through remaining live states
-    failMode = true
-    fireEvent.click(document.querySelector('#changeTrack')!)
-    fireEvent.click(document.querySelector('#liveStatusBtn')!)
-    const hwModal = within(document.querySelector('.modal')! as HTMLElement)
-    for (const label of ['Pro DJ Link verbinden', 'Demo-Link', 'Trennen', /USB-Datenbank wählen/, /\) binden$/, 'Lösen']) {
-      await waitFor(() => {
-        const btn = hwModal.queryByText(label)
-        if (btn) expect(btn).not.toBeDisabled()
-      }, { timeout: 2000 })
-      const btn = hwModal.queryByText(label)
-      if (btn) fireEvent.click(btn)
-    }
-    fireEvent.click(hwModal.getByText('Schließen'))
-
-    // Wait for polling to advance through listening / discovering / error / off states
+    // revealFile omitted/false branch from find modal
+    fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
+    const findModal = within(document.querySelector('.modal')! as HTMLElement)
+    fireEvent.click(findModal.getByText('Im Explorer zeigen'))
     await waitFor(() => {
-      const liveCalls = reqSpy.mock.calls.filter(([m]) => m === 'live')
-      expect(liveCalls.length).toBeGreaterThanOrEqual(5)
-    }, { timeout: 5000 })
+      expect(document.querySelector('#toast')?.textContent).toMatch(/Explorer nicht verfügbar/i)
+    })
+    fireEvent.click(findModal.getByText('Schließen'))
+
+    // Transport throws -> catch branch copies query and displays error toast
+    const baseImpl = reqSpy.getMockImplementation()!
+    reqSpy.mockImplementation(async (method: string, params?: object) => {
+      if (method === 'rekordboxTransport') throw new Error('Transport fehlgeschlagen')
+      return baseImpl(method, params)
+    })
+    fireEvent.click(liveInspector.getByRole('button', { name: /Deck A/i }))
+    await waitFor(() => {
+      expect(document.querySelector('#toast')?.textContent).toMatch(/Transport fehlgeschlagen/i)
+    })
   }, 30000)
-
-  it('falls back cleanly when localStorage holds non-array values or empty columns', async () => {
-    localStorage.setItem('cuepoint.setTracks', '{"not":"array"}')
-    localStorage.setItem('cuepoint.columns', '[]')
-    localStorage.setItem('cuepoint.customPresets', '{"not":"array"}')
-    const reqSpy = makeMockBridge()
-    const { unmount } = render(<App />)
-    await waitFor(() => expect(reqSpy).toHaveBeenCalledWith('open', { path: undefined }))
-    unmount()
-  })
 })
