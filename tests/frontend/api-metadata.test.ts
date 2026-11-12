@@ -162,14 +162,12 @@ describe('api.ts', () => {
     expect(basename('E:\\Music\\Set\\Track.mp3')).toBe('Track.mp3')
     expect(basename('/Users/dj/track.wav')).toBe('track.wav')
     expect(basename(null)).toBe('')
-    expect(camelotColor('1A')).toBe('#84dfd1')
-    expect(camelotColor('8A')).toBe('#c9ace8')
-    expect(camelotColor('10A')).toBe('#98b9ed')
-    expect(camelotColor('11A')).toBe('#83cfec')
-    expect(camelotColor('12A')).toBe('#76dce4')
-    expect(camelotColor('10B')).toBe('#98b9ed')
-    expect(camelotColor('11B')).toBe('#83cfec')
-    expect(camelotColor('12B')).toBe('#76dce4')
+    const colors = [
+      '#84dfd1', '#9be1b0', '#b9df98', '#d7e491', '#e8d6a0', '#e8bcab',
+      '#e1afd0', '#c9ace8', '#aeb5ed', '#98b9ed', '#83cfec', '#76dce4',
+    ]
+    expect(Array.from({ length: 12 }, (_, index) => camelotColor(`${index + 1}A`))).toEqual(colors)
+    expect(Array.from({ length: 12 }, (_, index) => camelotColor(`${index + 1}B`))).toEqual(colors)
     expect(camelotColor('invalid')).toBe('#a2a6ba')
   })
 
@@ -225,6 +223,17 @@ describe('api.ts', () => {
         seconds: null,
         year: null,
       },
+      {
+        id: '3',
+        title: 'Après-minuit',
+        artist: 'Nóva',
+        genre: 'Électronique',
+        bpm: 120.5,
+        key: '12B',
+        rating: 2,
+        seconds: 0,
+        year: 2026,
+      },
     ]
 
     const csv = exportSetCsv(tracks)
@@ -234,6 +243,7 @@ describe('api.ts', () => {
           'Nr;Titel;Interpret;BPM;Camelot;Genre;Rating;Jahr;Dauer (s)',
           '"1";"Dark ""Pulse""";"Klang";"138.00";"8A";"Techno";"5";"2024";"320"',
           '"2";"Ambient Intro";"Nova";"";"";"Ambient";"0";"";""',
+          '"3";"Après-minuit";"Nóva";"120.50";"12B";"Électronique";"2";"2026";"0"',
         ].join('\r\n'),
     )
     const csvBlob = createUrlSpy.mock.calls[0][0] as Blob
