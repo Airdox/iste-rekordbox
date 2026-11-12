@@ -178,8 +178,8 @@ export function TrackTable({
     const before = shownFields.filter((f) => f.id === 'title' || f.id === 'artist')
     const after = shownFields.filter((f) => f.id !== 'title' && f.id !== 'artist')
     const fmt = (f: Field) => ('flex' in f ? `minmax(${f.width}px,${f.flex}fr)` : `${f.width}px`)
-    const widths = ['44px', ...before.map(fmt), '86px', ...after.map(fmt), '68px']
-    const minW = 44 + 86 + 68 + shownFields.reduce((sum, f) => sum + f.width, 0)
+    const widths = ['36px', ...before.map(fmt), '74px', ...after.map(fmt), '58px']
+    const minW = 36 + 74 + 58 + shownFields.reduce((sum, f) => sum + f.width, 0)
     return {
       '--track-columns': widths.join(' '),
       '--track-min-width': `${minW}px`,

@@ -337,7 +337,7 @@ export function FilterView({
           <h2>Bibliothek durchsuchen</h2>
           <span className="aside" id="filterHeadingCount">
             {results
-              ? `${count(results.counts[0])} Treffer · ${results.ms.toFixed(1)} ms`
+              ? `${count(results.rows.length)} Treffer · ${results.ms.toFixed(1)} ms`
               : 'Lade …'}
           </span>
         </div>

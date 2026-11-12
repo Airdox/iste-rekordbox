@@ -57,7 +57,7 @@ export function CamelotWheel({
           const [cx, cy] = pt(160, 160, ring === 'A' ? 91 : 132, start + 15)
           const fill = isCurrent ? '#276eb8' : isSelected ? '#315d83' : isCompat ? '#344b60' : (ring === 'A' ? '#272e37' : '#222831')
           const stroke = isCurrent ? '#99c7ff' : isSelected ? '#618cb5' : '#4a535d'
-          return <g key={key} role="button" tabIndex={0} className="region"
+          return <g key={key} role="button" tabIndex={0} className="region" data-wheel-key={key}
             aria-label={`${key}${isCurrent ? ', aktuell' : ''}${isCompat ? ', harmonisch kompatibel' : ''}${isSelected ? ', als Filter gewählt' : ''}`}
             onClick={(event) => onToggleKey(key, event.ctrlKey || event.shiftKey || event.metaKey)}
             onKeyDown={(event) => {
@@ -86,19 +86,19 @@ export function CamelotWheel({
         </button>
       ))}
     </div>
-    <button type="button" className="w100 sm" style={{ marginTop: 7 }} onClick={onSelectAllHarmonic}>
+    <button type="button" id="allHarmonic" className="w100 sm" style={{ marginTop: 7 }} onClick={onSelectAllHarmonic}>
       Alle harmonisch passenden Keys wählen
     </button>
-    <div className="note">
+    <div className="note" id="wheelNotice">
       {selectedKeys.length ? `Aktive Keys: ${selectedKeys.join(', ')}` : 'Keine Keys gewählt – klicke ein Segment'}
     </div>
     <div className="sep" />
     <label className="checkrow">
-      <input type="checkbox" checked={autoFollow} onChange={(event) => onAutoFollowChange(event.target.checked)} />
+      <input type="checkbox" id="autoFollow" checked={autoFollow} onChange={(event) => onAutoFollowChange(event.target.checked)} />
       Bei Trackwechsel automatisch folgen
     </label>
     <label className="checkrow">
-      <input type="checkbox" checked={includeCurrent} onChange={(event) => onIncludeCurrentChange(event.target.checked)} />
+      <input type="checkbox" id="includeCurrent" checked={includeCurrent} onChange={(event) => onIncludeCurrentChange(event.target.checked)} />
       Aktuellen Key einschließen
     </label>
     <div className="navhint">

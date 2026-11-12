@@ -191,7 +191,7 @@ export function LiveView({
           <h2>Passende Tracks zum laufenden Titel</h2>
           <span className="aside" id="liveHeadingCount">
             {results
-              ? `${count(results.counts[0])} Treffer · ${results.ms.toFixed(1)} ms`
+              ? `${count(results.rows.length)} Treffer · ${results.ms.toFixed(1)} ms`
               : 'Lade …'}
           </span>
         </div>

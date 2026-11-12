@@ -150,6 +150,10 @@ async function run() {
 
     const totalSidebar = await page.locator('#sidebarTotal').innerText()
     assert.equal(totalSidebar, '15.500')
+    const liveHeadingCount = await page.locator('#liveHeadingCount').innerText()
+    assert.ok(!liveHeadingCount.startsWith('0 Treffer'), `Expected >0 live hits, got: ${liveHeadingCount}`)
+    const studioBtnOverflow = await page.locator('#toFilterStudio').evaluate((el) => el.scrollWidth - el.clientWidth)
+    assert.ok(studioBtnOverflow <= 2, `Button text clipped: ${studioBtnOverflow}px`)
 
     // Waveform rendered in Livebar
     const waveBars = await page.locator('#wave svg rect').count()
@@ -160,7 +164,7 @@ async function run() {
     assert.equal(wheelSegments, 24)
 
     // Single key click ("9A")
-    await page.locator('#view-live svg.wheel .region[aria-label^="9A,"]').first().click()
+    await page.locator('#view-live svg.wheel [data-wheel-key="9A"]').click()
     await page.waitForFunction(
       () => document.querySelector('#wheelNotice')?.textContent?.includes('Aktive Keys: 9A'),
     )
@@ -175,7 +179,7 @@ async function run() {
     })
 
     // Ctrl+Click adds "8A"
-    await page.locator('#view-live svg.wheel .region[aria-label^="8A,"]').first().click({ modifiers: ['Control'] })
+    await page.locator('#view-live svg.wheel [data-wheel-key="8A"]').click({ modifiers: ['Control'] })
     await page.waitForFunction(
       () => document.querySelector('#wheelNotice')?.textContent?.includes('9A, 8A'),
     )

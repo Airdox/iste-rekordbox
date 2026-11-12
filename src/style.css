@@ -306,7 +306,8 @@ select {
   color: #b7c0cc;
 }
 
-.navtab.active {
+.navtab.active,
+.navtab.active:hover {
   background: #204b79;
   border-color: #3977b3;
   color: #eef7ff;
@@ -666,9 +667,14 @@ select {
 
 .panefoot {
   margin-top: auto;
-  padding: 11px 13px;
+  padding: 11px 12px;
   border-top: 1px solid #353e49;
   background: #1b2027;
+}
+
+.panefoot button {
+  padding: 7px 6px;
+  font-size: 11.5px;
 }
 
 .sectiontitle {
@@ -935,7 +941,7 @@ select {
   height: 100%;
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 7px;
   white-space: nowrap;
   overflow: hidden;
   border-right: 1px solid #333c46;
@@ -998,7 +1004,7 @@ select {
 }
 
 .td-cell {
-  padding: 0 10px;
+  padding: 0 7px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1020,7 +1026,7 @@ select {
 }
 
 .wfmini {
-  width: 67px;
+  width: 56px;
   height: 20px;
   display: block;
 }
