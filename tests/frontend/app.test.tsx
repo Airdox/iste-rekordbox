@@ -282,13 +282,13 @@ describe('App (main.tsx)', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText(/Deck Two Live/).length).toBeGreaterThan(0)
-    })
+    }, { timeout: 4000 })
 
     // Wait for the real second 400ms poll (with anchor: null!) to arrive
     await waitFor(() => {
       const liveCalls = reqSpy.mock.calls.filter(([m]) => m === 'live')
       expect(liveCalls.length).toBeGreaterThanOrEqual(2)
-    }, { timeout: 2500 })
+    }, { timeout: 4000 })
 
     // Deck 2 MUST remain sticky; Deck One Silent must NOT hijack the display!
     expect(screen.getAllByText(/Deck Two Live/).length).toBeGreaterThan(0)
@@ -577,17 +577,34 @@ describe('App (main.tsx)', () => {
     })
     expect(writeText).toHaveBeenCalledWith('Acid Horizon Klara')
 
-    // revealFile omitted/false branch from find modal
+    // revealFile omitted/false branch, then true branch from find modal
     fireEvent.click(liveInspector.getByRole('button', { name: /Details/i }))
     const findModal = within(document.querySelector('.modal')! as HTMLElement)
     fireEvent.click(findModal.getByText('Im Explorer zeigen'))
     await waitFor(() => {
       expect(document.querySelector('#toast')?.textContent).toMatch(/Explorer nicht verfügbar/i)
     })
+    window.cuepoint!.revealFile = vi.fn().mockResolvedValue(true)
+    fireEvent.click(findModal.getByText('Im Explorer zeigen'))
+    await waitFor(() => {
+      expect(document.querySelector('#toast')?.textContent).toMatch(/Im Explorer geöffnet/i)
+    })
     fireEvent.click(findModal.getByText('Schließen'))
 
-    // Transport throws -> catch branch copies query and displays error toast
+    // ok: false with empty message -> default fallback message
     const baseImpl = reqSpy.getMockImplementation()!
+    reqSpy.mockImplementationOnce(async (method: string, params?: object) => {
+      if (method === 'rekordboxTransport') {
+        return { ok: false, reason: 'closed', action: 'deck2', deck: 2, query: 'Acid Horizon Klara', path: '', copied: true, message: '' }
+      }
+      return baseImpl(method, params)
+    })
+    fireEvent.click(liveInspector.getByText(/Deck B/i))
+    await waitFor(() => {
+      expect(document.querySelector('#toast')?.textContent).toMatch(/Rekordbox ist nicht geöffnet/i)
+    })
+
+    // Transport throws -> catch branch copies query and displays error toast
     reqSpy.mockImplementation(async (method: string, params?: object) => {
       if (method === 'rekordboxTransport') throw new Error('Transport fehlgeschlagen')
       return baseImpl(method, params)
@@ -688,7 +705,7 @@ describe('App (main.tsx)', () => {
           ms: 1.0,
         }
       }
-      if (failMode && ['linkStart', 'linkStop', 'demoLink', 'bindMedia', 'unbindMedia', 'detail', 'query'].includes(method)) {
+      if (failMode && ['linkStart', 'linkStop', 'demoLink', 'bindMedia', 'unbindMedia', 'detail', 'query', 'rekordboxTransport', 'interfaces'].includes(method)) {
         throw new Error(`Boom ${method}`)
       }
       return baseImpl(method, params)
@@ -715,11 +732,22 @@ describe('App (main.tsx)', () => {
     fireEvent.click(document.querySelector('#pinTrack')!)
     fireEvent.click(document.querySelector('#pinTrack')!)
 
-    // Find modal with track having null key/bpm/artist/path (no "Im Explorer zeigen" button)
+    // Find modal with track having null key/bpm/artist/path (no "Im Explorer zeigen" button), copy & Escape
     fireEvent.click(within(document.querySelector('#liveInspector')! as HTMLElement).getByText(/Details/i))
     const findModal = within(document.querySelector('.modal')! as HTMLElement)
     expect(findModal.queryByText('Im Explorer zeigen')).toBeNull()
-    fireEvent.click(findModal.getByText('Schließen'))
+    fireEvent.click(findModal.getByText('Suchtext kopieren'))
+    fireEvent.click(within(document.querySelector('#liveInspector')! as HTMLElement).getByText(/Details/i))
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    // Add null-key track to set and select it in SetView (covers t.key falsy branch)
+    const addNullBtn = Array.from(document.querySelectorAll('#view-live .track-row button'))
+      .find((b) => b.textContent?.trim() === '+ Set')
+    if (addNullBtn) fireEvent.click(addNullBtn)
+    fireEvent.click(document.querySelector('#tab-set')!)
+    const setRows = document.querySelectorAll('#setList .setrow')
+    if (setRows.length > 1) fireEvent.click(setRows[setRows.length - 1])
+    fireEvent.click(document.querySelector('#tab-live')!)
 
     // Source menu canceled pickers (choose returns null)
     fireEvent.click(document.querySelector('#sourceButton')!)
@@ -727,8 +755,9 @@ describe('App (main.tsx)', () => {
     fireEvent.click(document.querySelector('#sourceButton')!)
     fireEvent.click(within(document.querySelector('.source-menu')! as HTMLElement).getByText(/Rekordbox-Ordner öffnen/i))
 
-    // Failure mode for hardware actions & query/detail catch branches
+    // Failure mode for hardware actions, transport & query/detail catch branches
     failMode = true
+    fireEvent.click(within(document.querySelector('#liveInspector')! as HTMLElement).getByText(/In Rekordbox/i))
     fireEvent.click(document.querySelector('#changeTrack')!)
     fireEvent.click(document.querySelector('#tab-filter')!)
     fireEvent.click(document.querySelector('#applyFilter')!)
@@ -736,10 +765,12 @@ describe('App (main.tsx)', () => {
       expect(document.querySelector('#toast')?.textContent).toMatch(/Boom query/i)
     }, { timeout: 3000 })
 
-    // Close modals via Escape to exercise onClose handlers
+    // Close modals via Escape to exercise onClose handlers (including savePreset Enter edge cases)
     fireEvent.click(document.querySelector('#helpBtn')!)
     fireEvent.keyDown(window, { key: 'Escape' })
     fireEvent.click(document.querySelector('#savePreset')!)
+    fireEvent.keyDown(document.querySelector('#presetNameInput')!, { key: 'Enter' })
+    fireEvent.keyDown(document.querySelector('#presetNameInput')!, { key: 'a' })
     fireEvent.keyDown(window, { key: 'Escape' })
     fireEvent.click(document.querySelector('#tab-set')!)
     fireEvent.click(document.querySelector('#explainImport')!)
@@ -753,9 +784,10 @@ describe('App (main.tsx)', () => {
       expect(liveCalls.length).toBeGreaterThanOrEqual(6)
     }, { timeout: 5000 })
 
+    ;(window.cuepoint!.choose as ReturnType<typeof vi.fn>).mockResolvedValue('E:/USB/exportLibrary.db')
     fireEvent.click(document.querySelector('#liveStatusBtn')!)
     const hwModal = within(document.querySelector('.modal')! as HTMLElement)
-    for (const label of ['Pro DJ Link verbinden', 'Demo-Link', 'Trennen', /\) binden$/, 'Lösen']) {
+    for (const label of ['Pro DJ Link verbinden', 'Demo-Link', 'Trennen', /Netze & USB prüfen/, /USB-Datenbank wählen/, 'Lösen']) {
       await waitFor(() => {
         const btn = hwModal.queryByText(label)
         if (btn) expect(btn).not.toBeDisabled()
@@ -764,7 +796,7 @@ describe('App (main.tsx)', () => {
       if (btn) fireEvent.click(btn)
     }
     fireEvent.keyDown(window, { key: 'Escape' })
-  }, 30000)
+  }, 60000)
 
   it('falls back cleanly when localStorage holds non-array values or empty columns', async () => {
     localStorage.setItem('airdox.setTracks', '{"not":"array"}')

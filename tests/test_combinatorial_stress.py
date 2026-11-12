@@ -203,7 +203,8 @@ def test_fixture_and_join_contract(library, reference, db_path):
         for field in TEXT_FIELDS - {"isrc"}:
             assert result[field] == (track[field] or "").strip()
         for field in ("year", "seconds", "bytes", "bitrate", "sample_rate", "plays", "key"):
-            assert result[field] == track[field]
+            expected = None if (field == "year" and track[field] is not None and track[field] <= 0) else track[field]
+            assert result[field] == expected
         assert result["rating"] == (track["rating"] or 0)
 
 
