@@ -356,11 +356,19 @@ describe('App (main.tsx)', () => {
     fireEvent.click(addButtons[0])
     if (addButtons[1]) fireEvent.click(addButtons[1])
 
-    const wheelSeg = document.querySelector('#view-live [data-key="9A"]')
-    if (wheelSeg) {
-      fireEvent.click(wheelSeg)
-      fireEvent.click(wheelSeg, { shiftKey: true })
-    }
+    const firstKey = document.querySelector('#view-live [data-wheel-key="9A"]')!
+    const secondKey = document.querySelector('#view-live [data-wheel-key="8B"]')!
+    const selectedKeys = document.querySelector('#wheelNotice')!
+    fireEvent.click(firstKey)
+    expect(selectedKeys).toHaveTextContent(/^Aktive Keys: 9A$/)
+    fireEvent.click(firstKey)
+    expect(selectedKeys).toHaveTextContent(/^Aktive Keys: 9A$/)
+    fireEvent.click(secondKey, { shiftKey: true })
+    expect(selectedKeys).toHaveTextContent(/^Aktive Keys: 9A, 8B$/)
+    fireEvent.click(firstKey, { metaKey: true })
+    expect(selectedKeys).toHaveTextContent(/^Aktive Keys: 8B$/)
+    fireEvent.click(secondKey, { ctrlKey: true })
+    expect(selectedKeys).toHaveTextContent('Keine Keys gewählt')
     const autoFollowEl = document.querySelector('#autoFollow') as HTMLInputElement | null
     if (autoFollowEl) {
       fireEvent.click(autoFollowEl)
