@@ -78,6 +78,10 @@ describe('metadata.ts', () => {
     expect(move(src, 0, -1)).toBe(src)
     expect(move(src, 5, 1)).toBe(src)
     expect(move(src, 0, 5)).toBe(src)
+    expect(move(src, 3, 1)).toBe(src)
+    expect(move(src, src.length, 1)).toBe(src)
+    expect(move(src, 0, 3)).toBe(src)
+    expect(move(src, 0, src.length)).toBe(src)
     expect(move(src, 1, 1)).toBe(src)
     expect(move(src, 0, 2)).toEqual(['b', 'c', 'a'])
     expect(move(src, 2, 0)).toEqual(['c', 'a', 'b'])
@@ -98,6 +102,8 @@ describe('api.ts', () => {
 
     expect(message(new Error("Error invoking remote method 'cuepoint:request': Error: DB gesperrt"))).toBe('DB gesperrt')
     expect(message('Plain error')).toBe('Plain error')
+    const embeddedMsg = "Log: Error invoking remote method 'foo': Error: inner failure"
+    expect(message(embeddedMsg)).toBe(embeddedMsg)
   })
 
   it('formats counters, bpm, durations, filenames and camelot colors', () => {
@@ -109,7 +115,14 @@ describe('api.ts', () => {
     expect(basename('E:\\Music\\Set\\Track.mp3')).toBe('Track.mp3')
     expect(basename('/Users/dj/track.wav')).toBe('track.wav')
     expect(basename(null)).toBe('')
+    expect(camelotColor('1A')).toBe('#84dfd1')
     expect(camelotColor('8A')).toBe('#c9ace8')
+    expect(camelotColor('10A')).toBe('#98b9ed')
+    expect(camelotColor('11A')).toBe('#83cfec')
+    expect(camelotColor('12A')).toBe('#76dce4')
+    expect(camelotColor('10B')).toBe('#98b9ed')
+    expect(camelotColor('11B')).toBe('#83cfec')
+    expect(camelotColor('12B')).toBe('#76dce4')
     expect(camelotColor('invalid')).toBe('#a2a6ba')
   })
 
@@ -126,7 +139,7 @@ describe('api.ts', () => {
     expect(harmonicTransition('8A', '3B')).toEqual({ label: 'Key-Wechsel prüfen', kind: 'warning' })
   })
 
-  it('exports CSV with BOM, proper quoting, optional nulls and revokes blob URL', () => {
+  it('exports CSV with BOM, proper quoting, optional nulls and revokes blob URL', async () => {
     vi.useFakeTimers()
     const clickSpy = vi.fn()
     const createdLinks: HTMLAnchorElement[] = []
@@ -176,7 +189,10 @@ describe('api.ts', () => {
           '"2";"Ambient Intro";"Nova";"";"";"Ambient";"0";"";""',
         ].join('\r\n'),
     )
-    expect((createUrlSpy.mock.calls[0][0] as Blob).type).toBe('text/csv;charset=utf-8')
+    const csvBlob = createUrlSpy.mock.calls[0][0] as Blob
+    expect(csvBlob.type).toBe('text/csv;charset=utf-8')
+    expect(csvBlob.size).toBe(new TextEncoder().encode(csv).length)
+    expect(await csvBlob.text()).toBe(csv.replace(/^\uFEFF/, ''))
     expect(createdLinks[0].download).toBe('airdox-setliste.csv')
     expect(createdLinks[0].href).toBe('blob:test-csv')
     expect(clickSpy).toHaveBeenCalledTimes(1)
@@ -308,7 +324,10 @@ describe('api.ts', () => {
         'Nova - Zero Seconds',
       ].join('\r\n'),
     )
-    expect((createUrlSpy.mock.calls[0][0] as Blob).type).toBe('audio/x-mpegurl;charset=utf-8')
+    const m3uBlob = createUrlSpy.mock.calls[0][0] as Blob
+    expect(m3uBlob.type).toBe('audio/x-mpegurl;charset=utf-8')
+    expect(m3uBlob.size).toBeGreaterThan(0)
+    expect(await m3uBlob.text()).toBe(m3uDefault)
     expect(createdLinks[0].download).toBe('airdox-setliste.m3u8')
     expect(createdLinks[0].href).toBe('blob:test-export')
 
@@ -317,6 +336,11 @@ describe('api.ts', () => {
     expect(createdLinks[1].download).toBe('custom.m3u8')
 
     const xmlDefault = exportRekordboxXml(tracks)
+    const parsedXml = new DOMParser().parseFromString(xmlDefault, 'text/xml')
+    expect(parsedXml.querySelector('parsererror')).toBeNull()
+    expect(parsedXml.querySelectorAll('TRACK')).toHaveLength(6) // 3 collection + 3 playlist
+    expect(parsedXml.querySelector('TRACK[TrackID="1"]')?.getAttribute('AverageBpm')).toBe('138.00')
+
     expect(xmlDefault).toBe(
       [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -339,7 +363,10 @@ describe('api.ts', () => {
         '</DJ_PLAYLISTS>',
       ].join('\n'),
     )
-    expect((createUrlSpy.mock.calls[2][0] as Blob).type).toBe('application/xml;charset=utf-8')
+    const xmlBlob = createUrlSpy.mock.calls[2][0] as Blob
+    expect(xmlBlob.type).toBe('application/xml;charset=utf-8')
+    expect(xmlBlob.size).toBeGreaterThan(0)
+    expect(await xmlBlob.text()).toBe(xmlDefault)
     expect(createdLinks[2].download).toBe('rekordbox-import.xml')
     expect(createdLinks[2].href).toBe('blob:test-export')
 

@@ -185,22 +185,58 @@ describe('camelot-wheel.tsx', () => {
     const seg3A = container.querySelector('g[data-wheel-key="3A"]')!
     expect(seg3A.querySelector('path')).toHaveAttribute('fill', '#272e37')
 
-    // Segment click (non-additive vs Ctrl-additive)
-    fireEvent.click(seg8A, { ctrlKey: false })
+    // Segment click (non-additive vs Ctrl/Shift/Meta-additive)
+    fireEvent.click(seg8A, { ctrlKey: false, shiftKey: false, metaKey: false })
     expect(onToggleKey).toHaveBeenLastCalledWith('8A', false)
 
     fireEvent.click(seg8A, { ctrlKey: true })
     expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
 
-    // Keyboard activation (Enter, Space, ignored other key)
-    fireEvent.keyDown(seg8A, { key: 'Enter', shiftKey: true })
+    fireEvent.click(seg8A, { shiftKey: true })
     expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
 
-    fireEvent.keyDown(seg8A, { key: ' ', metaKey: true })
+    fireEvent.click(seg8A, { metaKey: true })
     expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
 
-    fireEvent.keyDown(seg8A, { key: 'Tab' })
-    expect(onToggleKey).toHaveBeenCalledTimes(4)
+    // Keyboard activation: Enter and Space (plain = false with preventDefault)
+    const enterEvt = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, bubbles: true })
+    const preventEnter = vi.spyOn(enterEvt, 'preventDefault')
+    seg8A.dispatchEvent(enterEvt)
+    expect(preventEnter).toHaveBeenCalled()
+    expect(onToggleKey).toHaveBeenLastCalledWith('8A', false)
+
+    const spaceEvt = new KeyboardEvent('keydown', { key: ' ', cancelable: true, bubbles: true })
+    const preventSpace = vi.spyOn(spaceEvt, 'preventDefault')
+    seg8A.dispatchEvent(spaceEvt)
+    expect(preventSpace).toHaveBeenCalled()
+    expect(onToggleKey).toHaveBeenLastCalledWith('8A', false)
+
+    // Keyboard activation with modifiers: Ctrl, Shift, Meta
+    const enterShift = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, cancelable: true, bubbles: true })
+    seg8A.dispatchEvent(enterShift)
+    expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
+
+    const enterCtrl = new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, cancelable: true, bubbles: true })
+    seg8A.dispatchEvent(enterCtrl)
+    expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
+
+    const enterMeta = new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, cancelable: true, bubbles: true })
+    seg8A.dispatchEvent(enterMeta)
+    expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
+
+    const spaceCtrl = new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, cancelable: true, bubbles: true })
+    seg8A.dispatchEvent(spaceCtrl)
+    expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
+
+    // Ignored keys: Tab, Escape, ArrowRight, 'a' (must NOT preventDefault and must NOT trigger onToggleKey)
+    const callCountBefore = onToggleKey.mock.calls.length
+    for (const key of ['Tab', 'Escape', 'ArrowRight', 'a']) {
+      const ignEvt = new KeyboardEvent('keydown', { key, cancelable: true, bubbles: true })
+      const ignPrevent = vi.spyOn(ignEvt, 'preventDefault')
+      seg8A.dispatchEvent(ignEvt)
+      expect(ignPrevent).not.toHaveBeenCalled()
+    }
+    expect(onToggleKey.mock.calls.length).toBe(callCountBefore)
 
     // Quick chips: title & active/current classes + click
     const chip8A = container.querySelector('.keychip[data-key="8A"]')!
@@ -223,8 +259,17 @@ describe('camelot-wheel.tsx', () => {
       'title',
       '9A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
     )
-    fireEvent.click(chip9A, { ctrlKey: false })
+    fireEvent.click(chip9A, { ctrlKey: false, shiftKey: false, metaKey: false })
     expect(onToggleKey).toHaveBeenLastCalledWith('9A', false)
+
+    fireEvent.click(chip9A, { ctrlKey: true })
+    expect(onToggleKey).toHaveBeenLastCalledWith('9A', true)
+
+    fireEvent.click(chip9A, { shiftKey: true })
+    expect(onToggleKey).toHaveBeenLastCalledWith('9A', true)
+
+    fireEvent.click(chip9A, { metaKey: true })
+    expect(onToggleKey).toHaveBeenLastCalledWith('9A', true)
 
     // All harmonic button & checkboxes + their exact tooltips
     const allHarmonicBtn = screen.getByRole('button', { name: 'Alle harmonisch passenden Keys wählen' })

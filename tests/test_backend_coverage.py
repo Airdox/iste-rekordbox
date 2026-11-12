@@ -846,6 +846,7 @@ def test_main_fader_disambiguation_hysteresis_and_ipc(tmp_path, monkeypatch):
     first_id = core.handle("query", {})["rows"][0]["id"]
     assert core.handle("detail", {"id": first_id})["id"] == first_id
     assert isinstance(core.handle("interfaces", {}), list)
+    monkeypatch.setattr(main_mod, "usb_sources", lambda: ["C:/fake/exportLibrary.db"])
     assert isinstance(core.handle("usb", {}), list)
 
     monkeypatch.setattr(core.link, "start", lambda ip, ann: None)
