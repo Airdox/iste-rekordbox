@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   basename,
   bpmText,
@@ -28,17 +28,58 @@ import {
   saveCustomPresets,
 } from '../../src/metadata'
 
+afterEach(() => vi.useRealTimers())
+
 describe('metadata.ts', () => {
   it('exposes complete field definitions, operators, camelot keys and presets', () => {
-    expect(fields.length).toBe(18)
-    expect(metadata.get('bpm')?.type).toBe('number')
-    expect(metadata.get('key')?.type).toBe('key')
+    expect(fields.map((field) => [
+      field.id, field.label, field.width, field.type,
+      'flex' in field ? field.flex : null,
+      'shortLabel' in field ? field.shortLabel : null,
+    ])).toEqual([
+      ['title', 'Titel', 120, 'text', 1.4, null],
+      ['artist', 'Interpret', 95, 'text', 1.05, null],
+      ['bpm', 'BPM', 60, 'number', null, null],
+      ['key', 'Camelot-Key', 50, 'key', null, 'Key'],
+      ['genre', 'Genre', 82, 'text', 0.85, null],
+      ['rating', 'Bewertung', 70, 'number', null, '★'],
+      ['year', 'Jahr', 62, 'number', null, null],
+      ['album', 'Album', 120, 'text', 1, null],
+      ['label', 'Label', 110, 'text', 0.85, null],
+      ['comment', 'Kommentar', 140, 'text', 1.1, null],
+      ['plays', 'Playcount', 68, 'number', null, 'Plays'],
+      ['seconds', 'Dauer (Sek.)', 64, 'number', null, 'Dauer'],
+      ['bitrate', 'Bitrate', 74, 'number', null, null],
+      ['path', 'Dateipfad', 150, 'text', 1.2, null],
+      ['added', 'Hinzugefügt', 100, 'date', null, null],
+      ['created', 'Erstellt', 100, 'date', null, null],
+      ['sample_rate', 'Samplerate', 96, 'number', null, null],
+      ['bytes', 'Dateigröße', 94, 'number', null, null],
+    ])
+    expect(metadata.size).toBe(18)
+    for (const field of fields) expect(metadata.get(field.id)).toBe(field)
     expect(defaultColumns).toEqual(['title', 'artist', 'bpm', 'key', 'genre', 'rating'])
-    expect(Object.keys(opsText)).toEqual(['contains', 'eq', 'neq', 'gte', 'lte', 'range', 'empty'])
-    expect(keys).toHaveLength(24)
-    expect(keys[0]).toBe('1A')
-    expect(keys[23]).toBe('12B')
-    expect(builtInPresets.map((p) => p.id)).toEqual(['techno', 'warmup', 'unplayed'])
+    expect(opsText).toEqual({
+      contains: 'enthält', eq: 'ist gleich', neq: 'ist nicht', gte: 'mindestens',
+      lte: 'höchstens', range: 'zwischen', empty: 'ist leer',
+    })
+    expect(keys).toEqual([
+      '1A', '2A', '3A', '4A', '5A', '6A', '7A', '8A', '9A', '10A', '11A', '12A',
+      '1B', '2B', '3B', '4B', '5B', '6B', '7B', '8B', '9B', '10B', '11B', '12B',
+    ])
+    expect(builtInPresets).toEqual([
+      { id: 'techno', name: 'Techno / Peak', logic: 'AND', groups: [
+        { mode: 'OR', rules: [{ id: 'genre', op: 'eq', value: 'Techno' }, { id: 'genre', op: 'eq', value: 'Hardgroove' }] },
+        { mode: 'AND', rules: [{ id: 'bpm', op: 'range', value: '134..142' }, { id: 'rating', op: 'gte', value: '4' }] },
+      ] },
+      { id: 'warmup', name: 'Melodic Warmup', logic: 'AND', groups: [
+        { mode: 'OR', rules: [{ id: 'genre', op: 'eq', value: 'Melodic House' }, { id: 'genre', op: 'eq', value: 'Deep House' }] },
+        { mode: 'AND', rules: [{ id: 'bpm', op: 'range', value: '118..130' }] },
+      ] },
+      { id: 'unplayed', name: 'Selten gespielt', logic: 'AND', groups: [
+        { mode: 'AND', rules: [{ id: 'plays', op: 'lte', value: '2' }, { id: 'rating', op: 'gte', value: '3' }] },
+      ] },
+    ])
   })
 
   it('loads and saves custom presets safely across valid, invalid and throwing storage', () => {
@@ -52,6 +93,9 @@ describe('metadata.ts', () => {
       JSON.stringify([
         { id: 'c1', name: 'My Peak', logic: 'AND', groups: [] },
         { id: 123, name: 'Bad', groups: [] },
+        { id: 'missing-name', groups: [] },
+        { id: 'wrong-name-type', name: 42, groups: [] },
+        { id: 'wrong-groups-type', name: 'Bad groups', groups: {} },
         null,
       ]),
     )
@@ -85,6 +129,9 @@ describe('metadata.ts', () => {
     expect(move(src, 1, 1)).toBe(src)
     expect(move(src, 0, 2)).toEqual(['b', 'c', 'a'])
     expect(move(src, 2, 0)).toEqual(['c', 'a', 'b'])
+    expect(src).toEqual(['a', 'b', 'c'])
+    const empty: string[] = []
+    expect(move(empty, 0, 1)).toBe(empty)
   })
 })
 
@@ -192,7 +239,7 @@ describe('api.ts', () => {
     const csvBlob = createUrlSpy.mock.calls[0][0] as Blob
     expect(csvBlob.type).toBe('text/csv;charset=utf-8')
     expect(csvBlob.size).toBe(new TextEncoder().encode(csv).length)
-    expect(await csvBlob.text()).toBe(csv.replace(/^\uFEFF/, ''))
+    expect(new Uint8Array(await csvBlob.arrayBuffer())).toEqual(new TextEncoder().encode(csv))
     expect(createdLinks[0].download).toBe('airdox-setliste.csv')
     expect(createdLinks[0].href).toBe('blob:test-csv')
     expect(clickSpy).toHaveBeenCalledTimes(1)
