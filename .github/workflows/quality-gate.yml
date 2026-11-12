@@ -1,0 +1,274 @@
+name: Airdox Quality Gate & Windows Release
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-static:
+    name: "1. Build & Statische Prüfungen"
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: TypeScript & Vite production build
+        run: npm run build
+
+      - name: Python syntax, lint & security static check (Ruff)
+        run: |
+          ruff check backend tests scripts
+          ruff check --select S backend
+
+      - name: Node production dependency audit
+        run: npm audit --omit=dev --audit-level=critical
+
+  unit-and-branch-tests:
+    name: "2. Unit- & Branch-Tests (Getrennt: Python / React / Electron)"
+    needs: build-and-static
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          pip install -r requirements-dev.txt
+
+      - name: Python Backend Unit & Branch Coverage (>=90% global, zero omit)
+        run: |
+          pytest --cov=backend --cov-branch --cov-fail-under=90 `
+            --cov-report=term-missing `
+            --cov-report=html:reports/coverage-python/html `
+            --cov-report=json:reports/coverage-python/coverage.json `
+            --cov-report=xml:reports/coverage-python/coverage.xml `
+            --junitxml=reports/pytest-junit.xml `
+            tests/test_backend_coverage.py tests/test_live.py tests/test_rekordbox_playback.py tests/test_readonly.py
+
+      - name: React / TypeScript Frontend Coverage (>=90% global, 100% critical)
+        run: npm run test:frontend
+
+      - name: Electron Main & Preload Coverage (>=90% global)
+        run: npm run test:electron
+
+      - name: Upload Stage 2 Coverage Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage2-coverage-reports
+          path: |
+            reports/coverage-python/
+            reports/coverage-frontend/
+            reports/coverage-electron/
+            reports/pytest-junit.xml
+
+  combinatorial-tests:
+    name: "3. Kombinatorische Tests (15.000 Tracks x 100.000+ Varianten)"
+    needs: build-and-static
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Generate 15.500-track synthetic Rekordbox DB
+        run: python tests/generate_synthetic_db.py
+
+      - name: Run 100.000+ combinatorial filter & nested group oracle tests
+        env:
+          CUEPOINT_QA_CASES: "100000"
+        run: pytest -q --junitxml=reports/combinatorial-junit.xml tests/test_combinatorial_stress.py tests/test_filter_groups.py
+
+      - name: Upload Stage 3 Test Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage3-combinatorial-results
+          path: reports/combinatorial-junit.xml
+
+  integration-and-ui:
+    name: "4. Integration & UI (Electron, Camelot, Filter, Set-Builder, IPC)"
+    needs: build-and-static
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies & build frontend
+        run: |
+          npm ci
+          pip install -r requirements-dev.txt
+          npm run build
+          python tests/generate_synthetic_db.py
+
+      - name: Run Electron Playwright E2E & Visual Geometry Suite
+        env:
+          CUEPOINT_CAPTURE_DIR: reports/ui-screenshots
+        run: npm run test:ui
+
+      - name: Live Rekordbox Windows Desktop Verification Status
+        run: |
+          $rb = Get-Process rekordbox -ErrorAction SilentlyContinue
+          if ($null -eq $rb) {
+            Write-Warning "Real Rekordbox is NOT running in GitHub hosted runner: live playback/fader verification remains explicitly marked as unverified on hosted CI."
+            "unverified-no-live-rekordbox" | Out-File -Encoding utf8 reports/rekordbox-live-status.txt
+          } else {
+            python scripts/inspect_rekordbox_uia.py | Tee-Object -FilePath reports/rekordbox-live-status.txt
+          }
+
+      - name: Upload Stage 4 UI Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage4-ui-integration
+          path: |
+            reports/ui-screenshots/
+            reports/rekordbox-live-status.txt
+
+  coverage-and-mutation-gate:
+    name: "5. Coverage- & Mutation-Gate (Stryker >=95% + Python AST >=95%)"
+    needs: [unit-and-branch-tests, combinatorial-tests, integration-and-ui]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          pip install -r requirements-dev.txt
+
+      - name: Download Stage 2 & 4 Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-artifacts
+
+      - name: Restore Coverage & UI Artifacts into reports/
+        run: |
+          New-Item -ItemType Directory -Force -Path reports | Out-Null
+          if (Test-Path downloaded-artifacts/stage2-coverage-reports) {
+            Copy-Item -Recurse -Force downloaded-artifacts/stage2-coverage-reports/* reports/
+          }
+          if (Test-Path downloaded-artifacts/stage4-ui-integration) {
+            Copy-Item -Recurse -Force downloaded-artifacts/stage4-ui-integration/* reports/
+          }
+
+      - name: Run StrykerJS Frontend Mutation Testing (>=95%)
+        run: npx stryker run
+
+      - name: Run Python Backend AST Mutation Testing (>=95%)
+        run: python scripts/mutate_backend.py
+
+      - name: Enforce Airdox Quality Gate & Generate Verifiable Report
+        run: python scripts/quality_gate.py
+
+      - name: Archive Verifiable Quality Gate Report & Mutation Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airdox-quality-gate-report
+          path: |
+            reports/quality-gate-report.md
+            reports/quality-gate-report.json
+            reports/mutation-frontend/
+            reports/mutation-python/
+            reports/coverage-python/
+            reports/coverage-frontend/
+            reports/coverage-electron/
+
+  windows-release:
+    name: "6. Windows Release (Gated on Stages 1-5)"
+    needs: [coverage-and-mutation-gate]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies & build Windows portable binary
+        run: |
+          npm ci
+          pip install -r requirements-dev.txt
+          $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
+          New-Item -ItemType Directory -Force -Path .venv/Scripts | Out-Null
+          Copy-Item (Get-Command pyinstaller).Source .venv/Scripts/pyinstaller.exe -Force -ErrorAction SilentlyContinue
+          npm run package:win
+
+      - name: Verify packaged Windows EXE with Playwright Smoke Suite
+        env:
+          CUEPOINT_TEST_EXE: release\win-unpacked\Cuepoint.exe
+        run: |
+          python tests/generate_synthetic_db.py
+          npm run test:ui
+
+      - name: Upload Windows Portable Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cuepoint-windows-x64-portable
+          path: release/Cuepoint-*-Windows-x64.exe
+

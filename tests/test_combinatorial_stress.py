@@ -11,7 +11,6 @@ import sqlite3
 import sys
 import unicodedata
 from contextlib import closing
-from functools import lru_cache
 from pathlib import Path
 from statistics import mean, quantiles
 from time import perf_counter, thread_time
@@ -104,22 +103,31 @@ class Reference:
                 standard_text(row[field]) for field in ("title", "artist", "genre", "album", "label", "comment", "path")
             )
 
-    @lru_cache(maxsize=8192)
+        if "group" not in self.__dict__:
+            self._mask_cache = {}
+
     def mask(self, field, operation, value):
+        cache_key = (field, operation, value)
+        if cache_key in self._mask_cache:
+            return self._mask_cache[cache_key]
         if field in TEXT_FIELDS:
             value = standard_text(value) or None
         masks = self.groups[field]
         if operation == "eq":
-            return masks.get(value, 0)
-        if operation == "empty":
-            return masks.get(None, 0)
-        if operation == "contains":
-            return self.union(mask for entry, mask in masks.items() if entry and value in entry)
-        if operation in ("gte", "lte"):
+            ans = masks.get(value, 0)
+        elif operation == "empty":
+            ans = masks.get(None, 0)
+        elif operation == "contains":
+            ans = self.union(mask for entry, mask in masks.items() if entry and value in entry)
+        elif operation in ("gte", "lte"):
             if operation == "gte":
-                return self.union(mask for entry, mask in masks.items() if entry is not None and entry >= value)
-            return self.union(mask for entry, mask in masks.items() if entry is not None and entry <= value)
-        raise ValueError(operation)
+                ans = self.union(mask for entry, mask in masks.items() if entry is not None and entry >= value)
+            else:
+                ans = self.union(mask for entry, mask in masks.items() if entry is not None and entry <= value)
+        else:
+            raise ValueError(operation)
+        self._mask_cache[cache_key] = ans
+        return ans
 
     @staticmethod
     def union(masks):
@@ -150,7 +158,12 @@ class Reference:
             values = self.fields[field]
             has_value = [track_id for track_id in result if values[track_id] is not None]
             missing = [track_id for track_id in result if values[track_id] is None]
-            key = values.__getitem__ if field != "key" else lambda track_id: WHEEL_INDEX[values[track_id]]
+            if field != "key":
+                def key(track_id, vals=values):
+                    return vals[track_id]
+            else:
+                def key(track_id, vals=values):
+                    return WHEEL_INDEX[vals[track_id]]
             result = sorted(has_value, key=key, reverse=descending) + missing
         return result
 

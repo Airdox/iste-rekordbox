@@ -1,4 +1,7 @@
-import sys, time, json
+import sys
+import time
+import json
+
 sys.path.insert(0, "backend")
 sys.path.insert(0, "tests")
 from generate_synthetic_db import DEFAULT_PATH
@@ -7,7 +10,12 @@ from library import Library
 lib = Library.load(str(DEFAULT_PATH))
 req = {
     'rules': [{'id': 'bpm', 'op': 'gte', 'value': 116.71}, {'id': 'year', 'op': 'lte', 'value': 2025}],
-    'sorts': [{'id': 'created', 'desc': False}, {'id': 'label', 'desc': False}, {'id': 'bpm', 'desc': False}, {'id': 'plays', 'desc': True}],
+    'sorts': [
+        {'id': 'created', 'desc': False},
+        {'id': 'label', 'desc': False},
+        {'id': 'bpm', 'desc': False},
+        {'id': 'plays', 'desc': True},
+    ],
     'facets': False, 'idsOnly': True
 }
 

@@ -63,13 +63,18 @@ export function SetView({
               </div>
             </div>
             <div className="flex">
-              <button id="addFromBrowse" onClick={onFindTracks}>
+              <button
+                id="addFromBrowse"
+                title="Öffnet das Filter-Studio, um weitere Tracks nach Regeln zu suchen und ins Set zu übernehmen"
+                onClick={onFindTracks}
+              >
                 + Tracks suchen
               </button>
               <button
                 className="primary"
                 id="exportSet"
                 disabled={tracks.length === 0}
+                title="Speichert deine Setliste als UTF-8-CSV-Datei inklusive BPM, Tonart, Übergangsbewertung und Dateipfad"
                 onClick={onExportCsv}
               >
                 ↓ &nbsp; Setliste als CSV exportieren
@@ -182,11 +187,16 @@ export function SetView({
               <button
                 id="clearSet"
                 disabled={tracks.length === 0}
+                title="Entfernt alle Tracks aus dieser lokalen Setliste (Rekordbox-Datenbank bleibt unberührt)"
                 onClick={onClearSet}
               >
                 Set leeren
               </button>
-              <button id="explainImport" onClick={onExplainImport}>
+              <button
+                id="explainImport"
+                title="Erklärt, wie du die vorbereiteten Tracks sicher und nicht-destruktiv nach Rekordbox übernimmst"
+                onClick={onExplainImport}
+              >
                 ↗ &nbsp; Rekordbox-Übergabe
               </button>
             </div>
@@ -197,23 +207,28 @@ export function SetView({
       <div className="pane">
         <div className="panehead">
           <h2>Set-Check</h2>
-          <span className="aside">nicht-destruktiv</span>
+          <span
+            className="aside"
+            title="Analysiert BPM-Sprünge und Camelot-Übergänge rein lokal ohne Schreibzugriff auf Rekordbox"
+          >
+            nicht-destruktiv ⓘ
+          </span>
         </div>
         <div className="panebody">
           <div className="setstats">
-            <div className="statbox">
+            <div className="statbox" title="Anzahl der Tracks in deiner aktuellen Setliste">
               <span className="muted">Tracks</span>
               <strong id="statTracks">{tracks.length}</strong>
             </div>
-            <div className="statbox">
+            <div className="statbox" title="Summierte Gesamtlaufzeit aller Tracks im Set">
               <span className="muted">Dauer</span>
               <strong id="statDuration">{duration(totalSeconds)}</strong>
             </div>
-            <div className="statbox">
+            <div className="statbox" title="Niedrigste bis höchste BPM im Set">
               <span className="muted">BPM-Spanne</span>
               <strong id="statBpm">{bpmSpan}</strong>
             </div>
-            <div className="statbox">
+            <div className="statbox" title="Anzahl harmonisch kompatibler Übergänge (gleicher Key oder Camelot ±1 / Parallelwechsel) von Track zu Track">
               <span className="muted">Harmonische Übergänge</span>
               <strong id="statMatches">{matchStat}</strong>
             </div>

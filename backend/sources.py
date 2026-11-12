@@ -77,7 +77,11 @@ def snapshot(source):
             try:
                 if not before[0]:
                     raise FileNotFoundError(source)
-                pairs = [(path, target / path.name) for path, stamp in zip(originals, before) if stamp]
+                pairs = [
+                    (path, target / path.name)
+                    for path, stamp in zip(originals, before, strict=False)
+                    if stamp
+                ]
                 for local in target.iterdir():
                     local.unlink()
                 copies = [(path, _copy_digest(path, local)) for path, local in pairs]
@@ -142,7 +146,7 @@ def _joined(conn, table, fields, bpm_column, joins):
             fields_sql.append(f'NULL AS "{alias}"')
     cursor = conn.execute(f'SELECT {", ".join(fields_sql)} FROM "{table}" AS c {" ".join(joins_sql)}')
     names = [column[0] for column in cursor.description]
-    return [dict(zip(names, row)) for row in cursor]
+    return [dict(zip(names, row, strict=False)) for row in cursor]
 
 
 def read_source(source):

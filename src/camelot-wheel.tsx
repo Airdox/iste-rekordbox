@@ -66,6 +66,9 @@ export function CamelotWheel({
                 onToggleKey(key, event.ctrlKey || event.shiftKey || event.metaKey)
               }
             }}>
+            <title>
+              {`${key}${isCurrent ? ' · Aktuelle Referenz' : isCompat ? ' · Harmonisch kompatibel' : ''}${isSelected ? ' · Aktiv im Filter' : ''} – Klick: nur diesen Key · Strg+Klick: mehrfach wählen`}
+            </title>
             <path d={pathWedge(r1, r2, start + 0.35, end - 0.35)} stroke={stroke} strokeWidth={isCurrent ? 2 : 1} fill={fill} />
             <text x={cx} y={cy} className={isCurrent ? 'activekey' : undefined}>{key}</text>
           </g>
@@ -81,23 +84,26 @@ export function CamelotWheel({
         <button key={key} type="button"
           className={`keychip ${selectedKeys.includes(key) ? 'active' : ''} ${key === referenceKey ? 'current' : ''}`}
           data-key={key}
+          title={`${key} ${key === referenceKey ? '(aktuelle Tonart)' : '(harmonischer Nachbar)'} – Klick: einzeln · Strg+Klick: hinzufügen/abwählen`}
           onClick={(event) => onToggleKey(key, event.ctrlKey || event.shiftKey || event.metaKey)}>
           {key}
         </button>
       ))}
     </div>
-    <button type="button" id="allHarmonic" className="w100 sm" style={{ marginTop: 7 }} onClick={onSelectAllHarmonic}>
+    <button type="button" id="allHarmonic" className="w100 sm" style={{ marginTop: 7 }}
+      title="Wählt alle 4 harmonisch passenden Camelot-Keys (-1, Referenz, +1 sowie A/B-Wechsel)"
+      onClick={onSelectAllHarmonic}>
       Alle harmonisch passenden Keys wählen
     </button>
     <div className="note" id="wheelNotice">
       {selectedKeys.length ? `Aktive Keys: ${selectedKeys.join(', ')}` : 'Keine Keys gewählt – klicke ein Segment'}
     </div>
     <div className="sep" />
-    <label className="checkrow">
+    <label className="checkrow" title="Passt die gewählten kompatiblen Keys automatisch an, sobald ein neuer Track auf dem aktiven Deck läuft">
       <input type="checkbox" id="autoFollow" checked={autoFollow} onChange={(event) => onAutoFollowChange(event.target.checked)} />
       Bei Trackwechsel automatisch folgen
     </label>
-    <label className="checkrow">
+    <label className="checkrow" title="Bezieht die exakt gleiche Tonart des Referenztracks zusätzlich zu den Nachbar-Keys ein">
       <input type="checkbox" id="includeCurrent" checked={includeCurrent} onChange={(event) => onIncludeCurrentChange(event.target.checked)} />
       Aktuellen Key einschließen
     </label>

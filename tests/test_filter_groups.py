@@ -97,16 +97,40 @@ def test_filter_studio_presets_and_range(env):
         (
             "AND",
             [
-                {"mode": "OR", "rules": [{"id": "genre", "op": "eq", "value": "Techno"}, {"id": "genre", "op": "eq", "value": "Hardgroove"}]},
-                {"mode": "AND", "rules": [{"id": "bpm", "op": "range", "value": "134..142"}, {"id": "rating", "op": "gte", "value": "4"}]},
+                {
+                    "mode": "OR",
+                    "rules": [
+                        {"id": "genre", "op": "eq", "value": "Techno"},
+                        {"id": "genre", "op": "eq", "value": "Hardgroove"},
+                    ],
+                },
+                {
+                    "mode": "AND",
+                    "rules": [
+                        {"id": "bpm", "op": "range", "value": "134..142"},
+                        {"id": "rating", "op": "gte", "value": "4"},
+                    ],
+                },
             ],
             (("genre", False), ("year", True), ("bpm", False)),
         ),
         (
             "OR",
             [
-                {"mode": "AND", "rules": [{"id": "bpm", "op": "range", "value": "120 bis 125"}, {"id": "plays", "op": "lte", "value": "2"}]},
-                {"mode": "AND", "rules": [{"id": "key", "op": "eq", "value": "8A"}, {"id": "genre", "op": "neq", "value": "Techno"}]},
+                {
+                    "mode": "AND",
+                    "rules": [
+                        {"id": "bpm", "op": "range", "value": "120 bis 125"},
+                        {"id": "plays", "op": "lte", "value": "2"},
+                    ],
+                },
+                {
+                    "mode": "AND",
+                    "rules": [
+                        {"id": "key", "op": "eq", "value": "8A"},
+                        {"id": "genre", "op": "neq", "value": "Techno"},
+                    ],
+                },
             ],
             (("bpm", False), ("title", False)),
         ),
@@ -114,7 +138,13 @@ def test_filter_studio_presets_and_range(env):
             "AND",
             [
                 {"mode": "AND", "rules": [{"id": "genre", "op": "contains", "value": ""}]},  # empty ignored
-                {"mode": "OR", "rules": [{"id": "year", "op": "range", "value": "2018;2024"}, {"id": "rating", "op": "eq", "value": "5"}]},
+                {
+                    "mode": "OR",
+                    "rules": [
+                        {"id": "year", "op": "range", "value": "2018;2024"},
+                        {"id": "rating", "op": "eq", "value": "5"},
+                    ],
+                },
             ],
             (("year", True), ("rating", True)),
         ),
@@ -122,7 +152,13 @@ def test_filter_studio_presets_and_range(env):
     for logic, groups, sorts in cases:
         expected = oracle_groups(ref, groups, logic, sorts)
         sort_payload = [{"id": f, "desc": d} for f, d in sorts]
-        fast = lib.query({"groups": groups, "groupLogic": logic, "sorts": sort_payload, "facets": False, "idsOnly": True})
+        fast = lib.query({
+            "groups": groups,
+            "groupLogic": logic,
+            "sorts": sort_payload,
+            "facets": False,
+            "idsOnly": True,
+        })
         full = lib.query({"groups": groups, "groupLogic": logic, "sorts": sort_payload, "facets": True})
         assert fast["rows"] == expected
         assert [r["id"] for r in full["rows"]] == expected
@@ -143,21 +179,37 @@ def test_combinatorial_nested_groups(env):
             for _ in range(rng.randint(1, 3)):
                 choice = rng.randrange(5)
                 if choice == 0:
-                    rules.append({"id": "genre", "op": rng.choice(["eq", "neq", "contains"]), "value": rng.choice(genres)})
+                    rules.append({
+                        "id": "genre",
+                        "op": rng.choice(["eq", "neq", "contains"]),
+                        "value": rng.choice(genres),
+                    })
                 elif choice == 1:
                     lo = rng.randint(110, 145)
                     hi = lo + rng.randint(2, 20)
                     rules.append({"id": "bpm", "op": "range", "value": f"{lo}..{hi}"})
                 elif choice == 2:
-                    rules.append({"id": "rating", "op": rng.choice(["gte", "eq", "lte"]), "value": str(rng.randint(1, 5))})
+                    rules.append({
+                        "id": "rating",
+                        "op": rng.choice(["gte", "eq", "lte"]),
+                        "value": str(rng.randint(1, 5)),
+                    })
                 elif choice == 3:
-                    rules.append({"id": "year", "op": "range", "value": f"{rng.randint(1995, 2015)}..{rng.randint(2016, 2026)}"})
+                    y_lo, y_hi = rng.randint(1995, 2015), rng.randint(2016, 2026)
+                    rules.append({"id": "year", "op": "range", "value": f"{y_lo}..{y_hi}"})
                 else:
                     rules.append({"id": "artist", "op": rng.choice(["contains", "empty"]), "value": "Noire"})
             groups.append({"mode": mode, "rules": rules})
-        sorts = tuple((f, bool(rng.getrandbits(1))) for f in rng.sample(["genre", "year", "bpm", "title", "rating", "key"], rng.randint(1, 3)))
+        sort_fields = rng.sample(["genre", "year", "bpm", "title", "rating", "key"], rng.randint(1, 3))
+        sorts = tuple((f, bool(rng.getrandbits(1))) for f in sort_fields)
         expected = oracle_groups(ref, groups, logic, sorts)
-        payload = {"groups": groups, "groupLogic": logic, "sorts": [{"id": f, "desc": d} for f, d in sorts], "facets": i % 40 == 0, "idsOnly": i % 40 != 0}
+        payload = {
+            "groups": groups,
+            "groupLogic": logic,
+            "sorts": [{"id": f, "desc": d} for f, d in sorts],
+            "facets": i % 40 == 0,
+            "idsOnly": i % 40 != 0,
+        }
         if i % 100 == 0:
             gc.collect()
         gc.disable()
@@ -193,3 +245,29 @@ def test_demo_link_cycling_and_deck_metadata(env):
     assert d2["trackId"] != d1["trackId"]
     core.handle("linkStop", {})
     assert core.status({})["state"] == "off"
+
+
+def test_year_sorting_asc_desc_and_zero_last():
+    lib = Library(None, "Master", [
+        {"id": "missing_none", "title": "A", "year": None, "bpm": 128},
+        {"id": "y2015", "title": "B", "year": 2015, "bpm": 128},
+        {"id": "missing_zero", "title": "C", "year": 0, "bpm": 128},
+        {"id": "y2022", "title": "D", "year": 2022, "bpm": 128},
+        {"id": "y1998", "title": "E", "year": 1998, "bpm": 128},
+    ])
+    try:
+        desc_rows = lib.query({"sorts": [{"id": "year", "desc": True}]})["rows"]
+        assert [r["id"] for r in desc_rows[:3]] == ["y2022", "y2015", "y1998"]
+        assert [r["year"] for r in desc_rows[3:]] == [None, None]
+
+        asc_rows = lib.query({"sorts": [{"id": "year", "desc": False}]})["rows"]
+        assert [r["id"] for r in asc_rows[:3]] == ["y1998", "y2015", "y2022"]
+        assert [r["year"] for r in asc_rows[3:]] == [None, None]
+
+        # Defensive compatibility with {field, dir} sort stage payloads
+        legacy_desc = lib.query({"sorts": [{"field": "year", "dir": "desc"}]})["rows"]
+        assert [r["id"] for r in legacy_desc[:3]] == ["y2022", "y2015", "y1998"]
+        legacy_asc = lib.query({"sorts": [{"field": "year", "dir": "asc"}]})["rows"]
+        assert [r["id"] for r in legacy_asc[:3]] == ["y1998", "y2015", "y2022"]
+    finally:
+        lib.close()

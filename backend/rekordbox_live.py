@@ -242,7 +242,8 @@ def _discover(automation, uia, hwnd):
         title, artist, bpm = labels[i - 3:i]
         raw_decks.append((anchor, title, artist, bpm, clocks))
 
-    # Order decks stably left-to-right (and top-to-bottom in 4-deck view) so UIA node reordering cannot swap deck numbers.
+    # Order decks stably left-to-right (and top-to-bottom in 4-deck view)
+    # so UIA node reordering cannot swap deck numbers.
     raw_decks.sort(key=lambda item: (item[0].y // 160, item[0].x))
 
     decks = []
@@ -344,7 +345,17 @@ class RekordboxPlayback:
                         ch_level = _normalized_slider(fader_el, uia) if fader_el else None
                         xf_pos = _normalized_slider(xf_el, uia) if xf_el else None
                         fader_level = combine_fader_levels(ch_level, xf_pos, deck, total_decks)
-                        master = _is_master_active(master_el, uia, getattr(master_el, "CurrentName", "")) if master_el else False
+                        master = (
+                            _is_master_active(master_el, uia, getattr(master_el, "CurrentName", ""))
+                            if master_el
+                            else False
+                        )
+                        shifted_name = shifted_key.CurrentName if shifted_key else ""
+                        resolved_seconds = (
+                            round(elapsed - remaining)
+                            if elapsed is not None and remaining is not None
+                            else None
+                        )
                         if name and original_bpm:
                             decks.append({
                                 "deck": deck,
@@ -352,8 +363,8 @@ class RekordboxPlayback:
                                 "artist": performer,
                                 "bpm": current_bpm or original_bpm,
                                 "original_bpm": original_bpm,
-                                "key": camelot(shifted_key.CurrentName if shifted_key else "") or camelot(original_key.CurrentName),
-                                "seconds": round(elapsed - remaining) if elapsed is not None and remaining is not None else None,
+                                "key": camelot(shifted_name) or camelot(original_key.CurrentName),
+                                "seconds": resolved_seconds,
                                 "playing": playing,
                                 "fader": fader_level,
                                 "channelFader": ch_level,
@@ -369,3 +380,166 @@ class RekordboxPlayback:
             self._reading = (time.monotonic(), False, [])
         finally:
             comtypes.CoUninitialize()
+
+
+_VK = {
+    "ctrl": 0x11,
+    "shift": 0x10,
+    "alt": 0x12,
+    "enter": 0x0D,
+    "back": 0x08,
+    "left": 0x25,
+    "right": 0x27,
+    "down": 0x28,
+    "a": ord("A"),
+    "f": ord("F"),
+    "v": ord("V"),
+}
+_EXTENDED_VKS = {0x25, 0x27, 0x28}
+
+
+def _set_clipboard_text(text):
+    """Copy a Unicode string to the Windows clipboard."""
+    if os.name != "nt":
+        return False
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
+    kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+    user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+    payload = ctypes.create_unicode_buffer(text)
+    byte_size = ctypes.sizeof(payload)
+    hmem = kernel32.GlobalAlloc(0x0002, byte_size)
+    if not hmem or not user32.OpenClipboard(None):
+        return False
+    try:
+        ptr = kernel32.GlobalLock(hmem)
+        if not ptr:
+            return False
+        try:
+            ctypes.memmove(ptr, payload, byte_size)
+        finally:
+            kernel32.GlobalUnlock(hmem)
+        user32.EmptyClipboard()
+        user32.SetClipboardData(13, hmem)  # CF_UNICODETEXT = 13
+        return True
+    finally:
+        user32.CloseClipboard()
+
+
+def _focus_window(hwnd):
+    """Bring the target Rekordbox HWND to the foreground cleanly."""
+    if os.name != "nt" or not hwnd:
+        return False
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    current_tid = kernel32.GetCurrentThreadId()
+    target_tid = user32.GetWindowThreadProcessId(hwnd, None)
+    attached = bool(target_tid and target_tid != current_tid and user32.AttachThreadInput(current_tid, target_tid, True))
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            user32.AttachThreadInput(current_tid, target_tid, False)
+    return True
+
+
+def _send_combo(*keys):
+    """Send a Win32 keyboard chord via SendInput (modifiers pressed first, released in reverse)."""
+    if os.name != "nt" or not keys:
+        return False
+
+    class _KeyInput(ctypes.Structure):
+        _fields_ = [
+            ("wVk", wintypes.WORD),
+            ("wScan", wintypes.WORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ctypes.c_size_t),
+        ]
+
+    class _InputUnion(ctypes.Union):
+        _fields_ = [("ki", _KeyInput), ("pad", ctypes.c_byte * 32)]
+
+    class _Input(ctypes.Structure):
+        _fields_ = [("type", wintypes.DWORD), ("union", _InputUnion)]
+
+    events = []
+    vks = [_VK[k] for k in keys]
+    for vk in vks:
+        flags = 0x0001 if vk in _EXTENDED_VKS else 0
+        events.append(_Input(type=1, union=_InputUnion(ki=_KeyInput(wVk=vk, dwFlags=flags))))
+    for vk in reversed(vks):
+        flags = 0x0002 | (0x0001 if vk in _EXTENDED_VKS else 0)
+        events.append(_Input(type=1, union=_InputUnion(ki=_KeyInput(wVk=vk, dwFlags=flags))))
+    arr = (_Input * len(events))(*events)
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    return user32.SendInput(len(events), arr, ctypes.sizeof(_Input)) == len(events)
+
+
+def send_track_to_rekordbox(
+    action,
+    query,
+    file_path="",
+    *,
+    window_fn=_rekordbox_window,
+    clipboard_fn=_set_clipboard_text,
+    focus_fn=_focus_window,
+    key_sender=_send_combo,
+    sleep_fn=time.sleep,
+):
+    """Reveal a track in Rekordbox Collection search and optionally load it into Deck 1 or 2."""
+    if action not in ("reveal", "deck1", "deck2"):
+        raise ValueError("Unbekannte Rekordbox-Aktion (erlaubt: reveal, deck1, deck2).")
+    clean_query = str(query or "").strip()
+    if not clean_query:
+        raise ValueError("Kein Suchbegriff für Rekordbox angegeben.")
+    copied = bool(clipboard_fn(clean_query))
+    hwnd = window_fn()
+    if not hwnd:
+        return {
+            "ok": False,
+            "reason": "no_window",
+            "action": action,
+            "deck": None,
+            "query": clean_query,
+            "path": file_path,
+            "copied": copied,
+            "message": "Rekordbox ist nicht geöffnet. Suchtext wurde in die Zwischenablage kopiert.",
+        }
+    focus_fn(hwnd)
+    sleep_fn(0.14)
+    key_sender("ctrl", "f")
+    sleep_fn(0.08)
+    key_sender("ctrl", "a")
+    key_sender("back")
+    key_sender("ctrl", "v")
+    sleep_fn(0.24)
+    key_sender("enter")
+    sleep_fn(0.12)
+    key_sender("down")
+    deck = None
+    if action == "deck1":
+        deck = 1
+        sleep_fn(0.08)
+        key_sender("shift", "left")
+    elif action == "deck2":
+        deck = 2
+        sleep_fn(0.08)
+        key_sender("shift", "right")
+    label = f"In Rekordbox gesucht & an Deck {deck} (A/B) gesendet" if deck else "In Rekordbox gesucht"
+    return {
+        "ok": True,
+        "reason": "sent",
+        "action": action,
+        "deck": deck,
+        "query": clean_query,
+        "path": file_path,
+        "copied": copied,
+        "message": f"{label}: {clean_query}",
+    }

@@ -5,7 +5,7 @@ import sys
 from fixtures import demo_tracks
 from library import Library, metadata_identity, number, waveform
 from live import DjLink, SLOTS, interfaces
-from rekordbox_live import RekordboxPlayback
+from rekordbox_live import RekordboxPlayback, send_track_to_rekordbox
 from sources import usb_sources
 
 
@@ -86,7 +86,13 @@ class Core:
             })
         selected = self._select_anchor(result["decks"], state, options.get("deck"))
         result["anchor"] = selected["deck"] if selected else None
-        if library and selected and selected["bpm"] is not None and selected["trackType"] and selected["trackId"] != "0":
+        if (
+            library
+            and selected
+            and selected["bpm"] is not None
+            and selected["trackType"]
+            and selected["trackId"] != "0"
+        ):
             percent = number(options.get("tolerance"), 0, 30)
             bpm = selected["bpm"]
             # Retain exact hundredth-BPM boundaries when binary floats round inwards.
@@ -138,7 +144,13 @@ class Core:
         else:
             selected = min(
                 available,
-                key=lambda d: (-round(level(d), 2), not d["playing"], not d.get("master"), d["deck"] != self._last_anchor, d["deck"]),
+                key=lambda d: (
+                    -round(level(d), 2),
+                    not d["playing"],
+                    not d.get("master"),
+                    d["deck"] != self._last_anchor,
+                    d["deck"],
+                ),
                 default=None,
             )
 
@@ -200,6 +212,12 @@ class Core:
             elif key in self.media:
                 self.media.pop(key).close()
             return True
+        if method == "rekordboxTransport":
+            action = str(params.get("action") or "reveal")
+            track = self.library.detail(params["id"]) if (self.library and params.get("id")) else None
+            query = str(params.get("query") or (f"{track['title']} {track['artist']}".strip() if track else "")).strip()
+            path = str(params.get("path") or (track.get("path") if track else "") or "")
+            return send_track_to_rekordbox(action, query, path)
         raise ValueError("Unbekannter Befehl.")
 
 

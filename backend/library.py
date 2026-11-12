@@ -26,7 +26,14 @@ SORTS = {field: f"{field}_sort" for field in TEXT_SORTS}
 SORTS.update({field: field for field in ("id", *INTEGER, "bpm", "rating")})
 SORTS["key"] = "key_sort"
 OPERATORS = {"eq": "=", "gte": ">=", "lte": "<=", "gt": ">", "lt": "<", "neq": "!="}
-NP_OPS = {"eq": operator.eq, "neq": operator.ne, "gte": operator.ge, "lte": operator.le, "gt": operator.gt, "lt": operator.lt}
+NP_OPS = {
+    "eq": operator.eq,
+    "neq": operator.ne,
+    "gte": operator.ge,
+    "lte": operator.le,
+    "gt": operator.gt,
+    "lt": operator.lt,
+}
 
 
 def folded(value):
@@ -55,7 +62,8 @@ def _parse_range(value):
 def _track(raw):
     track = {field: str(raw[field]).strip() if raw.get(field) is not None else "" for field in TEXT}
     for field in INTEGER:
-        value = number(raw.get(field))
+        minimum = 1 if field == "year" else 0
+        value = number(raw.get(field), minimum)
         track[field] = int(value) if value is not None else None
     rating = number(raw.get("rating"), 0, 255) or 0
     track["rating"] = round(rating / 51) if rating > 5 else int(rating)
@@ -132,7 +140,9 @@ class Library:
         self.conn.execute("ANALYZE")
         self.conn.row_factory = sqlite3.Row
         self.total = len(normalized)
-        stats = self.conn.execute("SELECT count(DISTINCT NULLIF(genre,'')), min(bpm), max(bpm), count(key) FROM tracks").fetchone()
+        stats = self.conn.execute(
+            "SELECT count(DISTINCT NULLIF(genre,'')), min(bpm), max(bpm), count(key) FROM tracks"
+        ).fetchone()
         self.genre_count, low, high, self.key_count = stats
         self.bpm_bounds = [math.floor(low), math.ceil(high)] if low is not None else [0, 200]
         self._tracks = {track["id"]: track for track in normalized}
@@ -440,11 +450,11 @@ class Library:
         for stage in requested:
             if not isinstance(stage, dict):
                 continue
-            field = stage.get("id")
+            field = stage.get("id") or stage.get("field")
             if not isinstance(field, str) or field not in SORTS or field in used:
                 continue
             used.add(field)
-            stages.append((field, stage.get("desc") is True))
+            stages.append((field, stage.get("desc") is True or stage.get("dir") == "desc"))
         if not stages:
             return idx
         if len(stages) == 1:
@@ -475,7 +485,7 @@ class Library:
         for track_id in track_ids:
             row = cache.get(track_id)
             if row is None:
-                row = cache[track_id] = dict(zip(columns, pick(self._tracks[track_id])))
+                row = cache[track_id] = dict(zip(columns, pick(self._tracks[track_id]), strict=False))
             rows.append(row)
         return rows
 
@@ -571,8 +581,13 @@ class Library:
                 if not isinstance(group, dict) or not isinstance(group.get("rules"), list):
                     continue
                 active_rules = [
-                    rule for rule in group["rules"]
-                    if isinstance(rule, dict) and (rule.get("op") == "empty" or str(rule.get("value") if rule.get("value") is not None else "").strip() != "")
+                    rule
+                    for rule in group["rules"]
+                    if isinstance(rule, dict)
+                    and (
+                        rule.get("op") == "empty"
+                        or str(rule.get("value") if rule.get("value") is not None else "").strip() != ""
+                    )
                 ]
                 if not active_rules:
                     continue
@@ -666,7 +681,12 @@ class Library:
         if len(matching) == 1:
             return matching[0]
         if self.kind == "Master" and (linked := self._tracks.get(remote.get("original_id"))):
-            if linked in same_metadata and remote["seconds"] and linked["seconds"] and abs(linked["seconds"] - remote["seconds"]) <= 2:
+            if (
+                linked in same_metadata
+                and remote["seconds"]
+                and linked["seconds"]
+                and abs(linked["seconds"] - remote["seconds"]) <= 2
+            ):
                 return linked
         if len(same_file) == 1 and len(same_metadata) == 1 and same_file[0]["id"] != same_metadata[0]["id"]:
             return None

@@ -15,7 +15,10 @@ GENRES = (
     "Electro", "Breakbeat", "Trance", "Psytrance", "Drum & Bass", "Jungle",
     "Ambient", "Downtempo", "UK Garage", "Dubstep", "Dub Techno", "Disco", "Leftfield",
 )
-TEMPOS = (138, 143, 134, 130, 125, 120, 124, 127, 128, 126, 131, 136, 140, 146, 175, 170, 78, 94, 135, 141, 121, 116, 110)
+TEMPOS = (
+    138, 143, 134, 130, 125, 120, 124, 127, 128, 126, 131, 136,
+    140, 146, 175, 170, 78, 94, 135, 141, 121, 116, 110,
+)
 GENRE_WEIGHTS = (18, 8, 8, 6, 8, 9, 13, 6, 7, 4, 4, 3, 5, 2, 4, 2, 4, 3, 3, 2, 2, 3, 2)
 TITLE_BASE = (
     "Afterimage", "Glass Corridor", "Negative Space", "Kinetic Memory", "Nocturnal Bloom",
@@ -33,7 +36,10 @@ ARTIST_BASE = (
 ARTISTS = tuple(f"{ARTIST_BASE[index % len(ARTIST_BASE)]} {index // len(ARTIST_BASE) + 1:02}" for index in range(180))
 KEYS = tuple(f"{index}{mode}" for mode in "AB" for index in range(1, 13))
 LABELS = ("Circuit Archive", "Room Tone", "Subfloor", "Tiefenschärfe", "Réseau", "Night Forms", "Independent")
-ALBUMS = ("Night Session", "Daybreak", "Violette", "Two Rooms", "Phase I", "Second Nature", "Fluchtlinien", "Live Takes")
+ALBUMS = (
+    "Night Session", "Daybreak", "Violette", "Two Rooms",
+    "Phase I", "Second Nature", "Fluchtlinien", "Live Takes",
+)
 COMMENTS = ("peak-time", "opening set", "vinyl rip", "starker Aufbau", "warm / spacious", "long blend", "", None)
 
 SCHEMA = """
@@ -96,7 +102,8 @@ def generate(path, count=DEFAULT_COUNT):
         pass
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.executescript(SCHEMA)
-        for table, values in (("Artist", ARTISTS), ("Genre", GENRES), ("Key", KEYS), ("Album", ALBUMS), ("Label", LABELS)):
+        tables = (("Artist", ARTISTS), ("Genre", GENRES), ("Key", KEYS), ("Album", ALBUMS), ("Label", LABELS))
+        for table, values in tables:
             connection.executemany(f"INSERT INTO djmd{table} VALUES (?, ?)", enumerate(values))
         connection.executemany(
             "INSERT INTO djmdContent VALUES (" + ",".join(["?"] * 19) + ")",

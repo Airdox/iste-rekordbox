@@ -234,6 +234,7 @@ export function TrackTable({
                 data-sorted={!!sort}>
                 {column.getCanSort() ? (
                   <button type="button" className={`th-sort ${sort ? 'sorted' : ''}`}
+                    title={`Nach ${flexRender(column.columnDef.header, getContext())} sortieren (Klick: Richtung wechseln · Rechtsklick auf Kopfzeile: Spalten konfigurieren)`}
                     onClick={column.getToggleSortingHandler()}>
                     <span>{flexRender(column.columnDef.header, getContext())}</span>
                     {Icon && <Icon size={11} />}

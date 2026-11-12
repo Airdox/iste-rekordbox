@@ -1,8 +1,8 @@
 import re
 
-MAJOR = dict(zip("B F# Db Ab Eb Bb F C G D A E".split(), range(1, 13)))
-MINOR = dict(zip("Ab Eb Bb F C G D A E B F# Db".split(), range(1, 13)))
-PITCH_CLASS = dict(zip("C D E F G A B".split(), (0, 2, 4, 5, 7, 9, 11)))
+MAJOR = dict(zip("B F# Db Ab Eb Bb F C G D A E".split(), range(1, 13), strict=False))
+MINOR = dict(zip("Ab Eb Bb F C G D A E B F# Db".split(), range(1, 13), strict=False))
+PITCH_CLASS = dict(zip("C D E F G A B".split(), (0, 2, 4, 5, 7, 9, 11), strict=False))
 
 
 def pitch_class(note):

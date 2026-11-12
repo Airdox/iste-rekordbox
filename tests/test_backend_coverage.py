@@ -238,20 +238,35 @@ def test_library_all_rule_branches_ranges_sorts_projections_and_waveform(tmp_pat
     lib = lib_mod.Library(tmp_path / "master.db", "Master", sample)
     try:
         # Invalid rules/sorts ignored gracefully
-        lib.query({"rules": ["bad", {"id": "nonexistent", "op": "eq", "value": "1"}, {"id": "title", "op": "unknown_op", "value": "x"}]})
+        lib.query({
+            "rules": [
+                "bad",
+                {"id": "nonexistent", "op": "eq", "value": "1"},
+                {"id": "title", "op": "unknown_op", "value": "x"},
+            ]
+        })
 
         # contains all-match vs no-match vs numeric instr
-        assert [r["id"] for r in lib.query({"rules": [{"id": "title", "op": "contains", "value": "a"}], "fields": ["album"]})["rows"]] == ["1", "2"]
+        r_title = lib.query({"rules": [{"id": "title", "op": "contains", "value": "a"}], "fields": ["album"]})
+        assert [r["id"] for r in r_title["rows"]] == ["1", "2"]
         assert lib.query({"rules": [{"id": "title", "op": "contains", "value": "zzz_none"}]})["rows"] == []
-        assert [r["id"] for r in lib.query({"rules": [{"id": "path", "op": "contains", "value": "a.mp3"}]})["rows"]] == ["1"]
-        assert [r["id"] for r in lib.query({"rules": [{"id": "bpm", "op": "contains", "value": "135"}]})["rows"]] == ["1"]
+        r_path = lib.query({"rules": [{"id": "path", "op": "contains", "value": "a.mp3"}]})
+        assert [r["id"] for r in r_path["rows"]] == ["1"]
+        r_bpm = lib.query({"rules": [{"id": "bpm", "op": "contains", "value": "135"}]})
+        assert [r["id"] for r in r_bpm["rows"]] == ["1"]
         assert lib.query({"rules": [{"id": "bpm", "op": "contains", "value": "999"}]})["rows"] == []
 
         # Text comparisons eq/neq/gte/gt/lte/lt including empty value
         assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "eq", "value": ""}]})["rows"]} == {"3"}
-        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "neq", "value": ""}]})["rows"]} == {"1", "2"}
-        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "eq", "value": "Missing"}]})["rows"]} == set()
-        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "neq", "value": "Missing"}]})["rows"]} == {"1", "2"}
+        assert {
+            r["id"] for r in lib.query({"rules": [{"id": "title", "op": "neq", "value": ""}]})["rows"]
+        } == {"1", "2"}
+        assert {
+            r["id"] for r in lib.query({"rules": [{"id": "title", "op": "eq", "value": "Missing"}]})["rows"]
+        } == set()
+        assert {
+            r["id"] for r in lib.query({"rules": [{"id": "title", "op": "neq", "value": "Missing"}]})["rows"]
+        } == {"1", "2"}
         assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "gte", "value": "B"}]})["rows"]} == {"2"}
         assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "lt", "value": "B"}]})["rows"]} == {"1"}
 
@@ -260,17 +275,31 @@ def test_library_all_rule_branches_ranges_sorts_projections_and_waveform(tmp_pat
         assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "empty", "value": ""}]})["rows"]} == {"3"}
         assert {r["id"] for r in lib.query({"rules": [{"id": "key", "op": "empty", "value": ""}]})["rows"]} == {"3"}
         assert lib.query({"rules": [{"id": "id", "op": "empty", "value": ""}]})["rows"] == []
-        assert {r["id"] for r in lib.query({"rules": [{"id": "key", "op": "range", "value": "10A..8A"}]})["rows"]} == {"1", "2"}
+        assert {
+            r["id"] for r in lib.query({"rules": [{"id": "key", "op": "range", "value": "10A..8A"}]})["rows"]
+        } == {"1", "2"}
         assert lib.query({"rules": [{"id": "key", "op": "range", "value": "bad..key"}]})["rows"] == []
-        assert {r["id"] for r in lib.query({"rules": [{"id": "id", "op": "range", "value": "2..1"}]})["rows"]} == {"1", "2"}
-        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "range", "value": "Z..A"}]})["rows"]} == {"1", "2"}
+        assert {
+            r["id"] for r in lib.query({"rules": [{"id": "id", "op": "range", "value": "2..1"}]})["rows"]
+        } == {"1", "2"}
+        assert {
+            r["id"] for r in lib.query({"rules": [{"id": "title", "op": "range", "value": "Z..A"}]})["rows"]
+        } == {"1", "2"}
         assert lib.query({"rules": [{"id": "title", "op": "range", "value": "onlyone"}]})["rows"] == []
         assert lib.query({"rules": [{"id": "bpm", "op": "range", "value": "bad"}]})["rows"] == []
 
         # Key & ID operators
         assert [r["id"] for r in lib.query({"rules": [{"id": "key", "op": "eq", "value": "8A"}]})["rows"]] == ["1"]
         assert lib.query({"rules": [{"id": "key", "op": "eq", "value": "BAD"}]})["rows"] == []
-        for op, expected in (("eq", {"2"}), ("neq", {"1", "3"}), ("gte", {"2", "3"}), ("gt", {"3"}), ("lte", {"1", "2"}), ("lt", {"1"})):
+        id_ops = (
+            ("eq", {"2"}),
+            ("neq", {"1", "3"}),
+            ("gte", {"2", "3"}),
+            ("gt", {"3"}),
+            ("lte", {"1", "2"}),
+            ("lt", {"1"}),
+        )
+        for op, expected in id_ops:
             assert {r["id"] for r in lib.query({"rules": [{"id": "id", "op": op, "value": "2"}]})["rows"]} == expected
         assert lib.query({"rules": [{"id": "id", "op": "eq", "value": "999"}]})["rows"] == []
         assert lib.query({"rules": [{"id": "bpm", "op": "eq", "value": "not-a-num"}]})["rows"] == []
@@ -278,20 +307,33 @@ def test_library_all_rule_branches_ranges_sorts_projections_and_waveform(tmp_pat
         # Legacy sort param, id sort, multi-sort + excludeId + idsOnly + unknown genre/keys
         assert [r["id"] for r in lib.query({"sort": "id", "desc": True, "excludeId": "3"})["rows"]] == ["2", "1"]
         assert lib.query({"sorts": ["bad", {"id": "unknown"}], "idsOnly": True})["rows"] == ["1", "2", "3"]
-        assert [r["id"] for r in lib.query({"sorts": [{"id": "artist", "desc": False}, {"id": "id", "desc": True}]})["rows"]] == ["1", "2", "3"]
+        multi_sorts = [{"id": "artist", "desc": False}, {"id": "id", "desc": True}]
+        assert [r["id"] for r in lib.query({"sorts": multi_sorts})["rows"]] == ["1", "2", "3"]
         assert lib.query({"genres": ["Nonexistent"]})["rows"] == []
         assert {r["id"] for r in lib.query({"keys": ["", "8A"]})["rows"]} == {"1", "3"}
         assert lib.query({"search": "Techno", "fields": ["comment", "label"]})["rows"][0]["id"] == "1"
 
         # Invalid groups ignored & non-empty search/projection cache invalidation
-        assert len(lib.query({"groups": ["bad", {"mode": "AND", "rules": [{"id": "title", "op": "eq", "value": "  "}]}]})["rows"]) == 3
+        bad_groups = ["bad", {"mode": "AND", "rules": [{"id": "title", "op": "eq", "value": "  "}]}]
+        assert len(lib.query({"groups": bad_groups})["rows"]) == 3
 
         # match_media paths
         assert lib.match_media(None) is None
-        assert lib.match_media({"id": "9", "title": "Alpha", "artist": "Klara", "path": "/usb/a.mp3", "seconds": 300})["id"] == "1"
-        assert lib.match_media({"id": "9", "title": "Other", "artist": "Other", "path": "/usb/a.mp3", "seconds": 300})["id"] == "1"
-        assert lib.match_media({"id": "9", "title": "Beta", "artist": "Mika", "path": "/usb/a.mp3", "seconds": 300}) is None
-        assert lib.match_media({"id": "9", "title": "Alpha", "artist": "Klara", "path": "/usb/other.mp3", "seconds": 301, "original_id": "1"})["id"] == "1"
+        m1 = lib.match_media({"id": "9", "title": "Alpha", "artist": "Klara", "path": "/usb/a.mp3", "seconds": 300})
+        assert m1["id"] == "1"
+        m2 = lib.match_media({"id": "9", "title": "Other", "artist": "Other", "path": "/usb/a.mp3", "seconds": 300})
+        assert m2["id"] == "1"
+        m3 = lib.match_media({"id": "9", "title": "Beta", "artist": "Mika", "path": "/usb/a.mp3", "seconds": 300})
+        assert m3 is None
+        m4 = lib.match_media({
+            "id": "9",
+            "title": "Alpha",
+            "artist": "Klara",
+            "path": "/usb/other.mp3",
+            "seconds": 301,
+            "original_id": "1",
+        })
+        assert m4["id"] == "1"
 
         # recommendations empty & harmonic off
         assert lib.recommendations(None, "8A", None, 4, True) == []
@@ -355,8 +397,17 @@ def test_live_djlink_paths_and_loopback(monkeypatch):
         return first_sock
 
     monkeypatch.setattr(live_mod, "_listener", fake_listener)
-    monkeypatch.setattr(live_mod, "interfaces", lambda: [{"name": "LAN", "ip": "10.0.0.2", "mac": "aa:bb:cc:dd:ee:ff",
-                                                          "broadcast": "10.0.0.255", "network": live_mod.ipaddress.IPv4Network("10.0.0.0/24")}])
+    monkeypatch.setattr(
+        live_mod,
+        "interfaces",
+        lambda: [{
+            "name": "LAN",
+            "ip": "10.0.0.2",
+            "mac": "aa:bb:cc:dd:ee:ff",
+            "broadcast": "10.0.0.255",
+            "network": live_mod.ipaddress.IPv4Network("10.0.0.0/24"),
+        }],
+    )
     with pytest.raises(ValueError, match="UDP-Port"):
         dl.start("10.0.0.2", True)
 
@@ -487,7 +538,16 @@ def test_rekordbox_live_faders_crossfader_master_and_discover(monkeypatch):
     )
 
     class FakeEl:
-        def __init__(self, name="", help_text="", ctrl=10, rect=(0, 0, 100, 20), range_val=None, val_str=None, toggle=None):
+        def __init__(
+            self,
+            name="",
+            help_text="",
+            ctrl=10,
+            rect=(0, 0, 100, 20),
+            range_val=None,
+            val_str=None,
+            toggle=None,
+        ):
             self.CurrentName = name
             self.CachedName = name
             self.CachedHelpText = help_text
@@ -672,7 +732,41 @@ def test_main_fader_disambiguation_hysteresis_and_ipc(tmp_path, monkeypatch):
     empty_core = main_mod.Core(local_playback=FakePlayback())
     with pytest.raises(ValueError, match="Öffne zuerst"):
         empty_core.handle("query", {})
-    empty_core.close()
+    assert empty_core.handle("detail", {"id": "1"}) is None
+    empty_core.local_playback.close()
+
+    # Demo link mode, preferred deck, no-fader fallback & pause anchor reset
+    core.demo = True
+    core.demo_index = 0
+    demo_st = core.status({"bpmTolerance": 6, "sameGenre": False, "harmonic": True})
+    assert demo_st["state"] == "demo" and len(demo_st["decks"]) == 1
+    core.demo = False
+
+    # No faders -> master or playing fallback + pause resets anchor to None
+    playback.decks = [
+        {"deck": 1, "title": "Deck One Track", "artist": "Artist A", "bpm": 128, "original_bpm": 128,
+         "key": "8A", "seconds": 300, "playing": True, "master": False},
+        {"deck": 2, "title": "Deck Two Track", "artist": "Artist B", "bpm": 135, "original_bpm": 135,
+         "key": "9A", "seconds": 310, "playing": True, "master": True},
+    ]
+    assert core.status({"deck": 1})["anchor"] == 1
+    assert core.status({})["anchor"] in (1, 2)
+    playback.decks[0]["playing"] = False
+    playback.decks[1]["playing"] = False
+    assert core.status({})["anchor"] is None
+
+    # Rekordbox disconnected falls through to Pro DJ Link status
+    playback.connected = False
+    playback.decks = []
+    off_st = core.status({})
+    assert off_st["state"] == "off"
+
+    # Non-playing COM/disconnected branches in rekordbox_live
+    assert rb_live.combine_fader_levels(0.8, 0.0, 3, 4) == 0.8
+    assert rb_live.combine_fader_levels(0.8, 1.0, 4, 4) == 0.8
+    assert rb_live._position("01:02", ".bad") == 62.0
+    assert rb_live._tempo("132.5") == 132.5
+    assert rb_live._tempo("abc") is None
 
     assert core.handle("demoLibrary", {})["kind"] == "Demo"
     sample_db = tmp_path / "m.db"
@@ -713,8 +807,11 @@ def test_main_fader_disambiguation_hysteresis_and_ipc(tmp_path, monkeypatch):
                 album_id TEXT, label_id TEXT
             );
         """)
-    assert core.handle("bindMedia", {"source": 1, "slot": 3, "path": str(usb_db)}) is True
-    assert core.handle("bindMedia", {"source": 1, "slot": 3, "path": str(usb_db)}) is True
+    # Case 4: Unbound cleanup & bind replacement + OneLibrary/Device Library status
+    usb2_db = tmp_path / "export2.db"
+    usb2_db.write_bytes(usb_db.read_bytes())
+    assert core.handle("bindMedia", {"source": 1, "slot": 3, "path": str(usb2_db)}) is True
+    assert core.handle("unbindMedia", {"source": 1, "slot": 3}) is True
     assert core.handle("unbindMedia", {"source": 1, "slot": 3}) is True
     with pytest.raises(ValueError, match="exportLibrary"):
         core.handle("bindMedia", {"source": 1, "slot": 3, "path": str(sample_db)})
