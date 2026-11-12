@@ -16,6 +16,7 @@ class Core:
         self.local_playback = local_playback
         self.media = {}
         self.demo = False
+        self.demo_index = 0
 
     def replace_library(self, library):
         if self.library:
@@ -28,11 +29,12 @@ class Core:
         library = self.library
         local_decks = []
         if self.demo:
-            row = library.conn.execute(
+            rows = library.conn.execute(
                 "SELECT id,bpm FROM tracks WHERE key IS NOT NULL AND bpm BETWEEN 110 AND 150 "
-                "ORDER BY plays DESC, id LIMIT 1"
-            ).fetchone() if library else None
-            decks = [{"deck": 1, "name": "Cuepoint Demo", "source": 1, "slot": 4, "trackType": 1,
+                "ORDER BY plays DESC, id LIMIT 24"
+            ).fetchall() if library else []
+            row = rows[self.demo_index % len(rows)] if rows else None
+            decks = [{"deck": 1, "name": "airdox Demo", "source": 1, "slot": 4, "trackType": 1,
                       "trackId": row["id"], "bpm": row["bpm"], "playing": True, "master": True}] if row else []
             state = "demo"
         elif self.local_playback and not decks and library and library.kind == "Master":
@@ -58,7 +60,8 @@ class Core:
             result["decks"].append({
                 **deck, "slotName": SLOTS.get(deck["slot"], f"Slot {deck['slot']}"),
                 "title": track["title"] if track else None, "artist": track["artist"] if track else None,
-                "key": track["key"] if track else None, "libraryId": local["id"] if local else None,
+                "key": track["key"] if track else None, "genre": track["genre"] if track else None,
+                "seconds": track["seconds"] if track else None, "libraryId": local["id"] if local else None,
             })
         for deck in local_decks:
             candidates = library.by_metadata.get(metadata_identity(deck), [])
@@ -74,7 +77,10 @@ class Core:
                 "slotName": "Rekordbox lokal", "trackId": local_id or f"local:{deck['deck']}",
                 "trackType": 1, "bpm": deck["bpm"], "playing": deck["playing"], "master": False,
                 "title": deck["title"], "artist": deck["artist"],
-                "key": deck["key"] or (track["key"] if track else None), "libraryId": local_id,
+                "key": deck["key"] or (track["key"] if track else None),
+                "genre": track["genre"] if track else None,
+                "seconds": deck["seconds"] or (track["seconds"] if track else None),
+                "libraryId": local_id,
             })
         preferred_deck = options.get("deck")
         available = [deck for deck in result["decks"] if deck["trackId"] != "0"
@@ -126,6 +132,10 @@ class Core:
         if method == "demoLink":
             self.link.stop()
             self.demo = True
+            if params.get("next"):
+                self.demo_index += 1
+            elif params.get("index") is not None:
+                self.demo_index = int(params["index"])
             return True
         if method == "live":
             return self.status(params)

@@ -44,20 +44,6 @@ export type Source = {
   withKey: number
 }
 
-export type Filters = {
-  search: string
-  genres: string[]
-  keys: string[]
-  harmonicKeys?: boolean
-  bpmMin?: number
-  bpmMax?: number
-  rating?: number
-  yearMin?: number
-  yearMax?: number
-  plays?: number
-}
-
-export const emptyFilters: Filters = { search: '', genres: [], keys: [] }
 export type Facet = { value: string; count: number }
 export type Results = {
   rows: Track[]
@@ -77,6 +63,8 @@ export type Deck = {
   trackId: string
   bpm: number | null
   key: string | null
+  genre?: string | null
+  seconds?: number | null
   title: string | null
   artist: string | null
   libraryId: string | null
@@ -112,15 +100,53 @@ const germanNumber = new Intl.NumberFormat('de-DE')
 export const count = (value: number) => germanNumber.format(value)
 export const bpmText = (value: number | null) => value?.toFixed(2) ?? '—'
 export const duration = (seconds: number | null) =>
-  seconds === null ? '—' : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+  seconds === null ? '—' : `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
 export const basename = (value: string | null) => value?.split(/[\\/]/).pop() ?? ''
-// Segmentfarben des offiziellen Camelot Wheel von Mixed In Key.
+
 const camelotPalette = ['#84dfd1', '#9be1b0', '#b9df98', '#d7e491', '#e8d6a0', '#e8bcab',
   '#e1afd0', '#c9ace8', '#aeb5ed', '#98b9ed', '#83cfec', '#76dce4']
 export const camelotColor = (key: string) => camelotPalette[Number(key.slice(0, -1)) - 1] ?? '#a2a6ba'
 
-export function relatedKeys(key: string) {
-  const number = Number(key.slice(0, -1))
-  const mode = key.slice(-1)
-  return [key, `${number}${mode === 'A' ? 'B' : 'A'}`, `${(number + 10) % 12 + 1}${mode}`, `${number % 12 + 1}${mode}`]
+export function relatedKeys(key: string): string[] {
+  const match = /^(\d+)([AB])$/i.exec(key.trim())
+  if (!match) return []
+  const number = Number(match[1])
+  const mode = match[2].toUpperCase()
+  return [
+    `${(number + 10) % 12 + 1}${mode}`,
+    `${number}${mode}`,
+    `${number % 12 + 1}${mode}`,
+    `${number}${mode === 'A' ? 'B' : 'A'}`,
+  ]
+}
+
+export function harmonicTransition(keyA: string | null, keyB: string | null): { label: string; kind: 'good' | 'warning' } {
+  if (!keyA || !keyB) return { label: 'Tonart fehlt', kind: 'warning' }
+  if (keyA === keyB) return { label: 'Gleicher Key', kind: 'good' }
+  if (relatedKeys(keyA).includes(keyB)) return { label: 'Harmonisch benachbart', kind: 'good' }
+  return { label: 'Key-Wechsel prüfen', kind: 'warning' }
+}
+
+export function exportSetCsv(items: Track[], filename = 'airdox-setliste.csv'): string {
+  const cols = ['Nr', 'Titel', 'Interpret', 'BPM', 'Camelot', 'Genre', 'Rating', 'Jahr', 'Dauer (s)']
+  const rows = items.map((t, i) => [
+    i + 1,
+    t.title,
+    t.artist,
+    t.bpm != null ? t.bpm.toFixed(2) : '',
+    t.key ?? '',
+    t.genre,
+    t.rating,
+    t.year ?? '',
+    t.seconds ?? '',
+  ].map((v) => '"' + String(v).replaceAll('"', '""') + '"').join(';'))
+  const content = '\uFEFF' + [cols.join(';'), ...rows].join('\r\n')
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+  return content
 }
