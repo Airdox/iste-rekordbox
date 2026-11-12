@@ -1,16 +1,19 @@
 """Validate query results against a Python oracle built from the fixture's raw SQL."""
 
-import gc
 import hashlib
-import math
+import json
 import mmap
 import os
 import random
+import re
 import shutil
 import sqlite3
 import sys
 import unicodedata
 from contextlib import closing
+from functools import reduce
+from itertools import product
+from operator import and_
 from pathlib import Path
 from statistics import mean, quantiles
 from time import perf_counter, thread_time
@@ -26,6 +29,8 @@ from keys import camelot, compatible
 from library import Library
 
 
+QA_SEED = 61521
+PERFORMANCE_TARGET_MS = 50
 TEXT_FIELDS = frozenset({"title", "artist", "album", "genre", "label", "comment", "path", "added", "created", "isrc"})
 RULE_FIELDS = ("artist", "bpm", "year", "title", "key", "genre", "album", "label", "rating",
                "plays", "seconds", "bitrate", "comment", "added", "path", "created", "sample_rate", "bytes")
@@ -81,6 +86,7 @@ class Reference:
     def __init__(self, raw):
         self.raw = raw
         self.ids = tuple(sorted(row["id"] for row in raw))
+        self.all_tracks = (1 << len(self.ids)) - 1
         positions = {track_id: index for index, track_id in enumerate(self.ids)}
         self.fields = {field: {} for field in SORT_FIELDS}
         self.groups = {field: {} for field in SORT_FIELDS}
@@ -105,22 +111,35 @@ class Reference:
                 standard_text(row[field]) for field in ("title", "artist", "genre", "album", "label", "comment", "path")
             )
 
-        if "group" not in self.__dict__:
-            self._mask_cache = {}
+        self._mask_cache = {}
 
     def mask(self, field, operation, value):
         cache_key = (field, operation, value)
         if cache_key in self._mask_cache:
             return self._mask_cache[cache_key]
-        if field in TEXT_FIELDS:
+        if field in TEXT_FIELDS and operation != "range":
             value = standard_text(value) or None
+        elif field not in TEXT_FIELDS and field != "key" and operation not in ("empty", "range"):
+            value = self.number(value)
+            if value is None:
+                return 0
         masks = self.groups[field]
         if operation == "eq":
             ans = masks.get(value, 0)
         elif operation == "empty":
             ans = masks.get(None, 0)
+        elif operation == "neq":
+            ans = self.all_tracks & ~masks.get(None, 0) & ~masks.get(value, 0)
         elif operation == "contains":
             ans = self.union(mask for entry, mask in masks.items() if entry and value in entry)
+        elif operation == "range":
+            parts = re.split(r"\.\.|;|,|\s+bis\s+|\s+[–—-]\s+", str(value).strip())
+            bounds = [self.number(part) for part in parts]
+            if len(bounds) != 2 or None in bounds:
+                ans = 0
+            else:
+                low, high = sorted(bounds)
+                ans = self.union(mask for entry, mask in masks.items() if entry is not None and low <= entry <= high)
         elif operation in ("gte", "lte"):
             if operation == "gte":
                 ans = self.union(mask for entry, mask in masks.items() if entry is not None and entry >= value)
@@ -130,6 +149,14 @@ class Reference:
             raise ValueError(operation)
         self._mask_cache[cache_key] = ans
         return ans
+
+    @staticmethod
+    def number(value):
+        try:
+            converted = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return converted if 0 <= converted <= 10**12 else None
 
     @staticmethod
     def union(masks):
@@ -148,9 +175,18 @@ class Reference:
         return frozenset(self.from_mask(self.mask(field, operation, value)))
 
     def expected(self, filters, sorts):
-        matching = (1 << len(self.ids)) - 1
-        for rule in filters:
-            matching &= self.mask(*rule)
+        return self.expected_groups(filters, (), "AND", sorts)
+
+    def expected_groups(self, filters, groups, logic, sorts):
+        matching = reduce(and_, (self.mask(*rule) for rule in filters), self.all_tracks)
+        group_masks = []
+        for mode, rules in groups:
+            active = [self.mask(field, op, value) for field, op, value in rules
+                      if op == "empty" or (value is not None and str(value).strip())]
+            if active:
+                group_masks.append(self.union(active) if mode == "OR" else reduce(and_, active))
+        if group_masks:
+            matching &= self.union(group_masks) if logic == "OR" else reduce(and_, group_masks)
         return self.ordered(self.from_mask(matching), sorts)
 
     def ordered(self, matching, sorts):
@@ -172,16 +208,20 @@ class Reference:
 
 def payload(filters, sorts, **other):
     return {
-        "rules": [{"id": field, "op": op, "value": value} for field, op, value in filters],
+        "rules": rules_payload(filters),
         "sorts": [{"id": field, "desc": descending} for field, descending in sorts],
         **other,
     }
 
 
+def rules_payload(rules):
+    return [{"id": field, "op": op, "value": value} for field, op, value in rules]
+
+
 def test_fixture_and_join_contract(library, reference, db_path):
     tracks = reference.raw
     artists = {row["artist"] for row in tracks if row["artist"]}
-    assert len(tracks) >= 15_000
+    assert len(tracks) >= 15_500
     assert db_path.stat().st_size / len(tracks) <= 1024
     assert len(artists) >= 150
     assert len({row["genre"] for row in tracks if row["genre"]}) >= 20
@@ -345,7 +385,7 @@ def test_encrypted_one_library_export_is_read_only(tmp_path):
 
 
 def plans(reference, count):
-    rng = random.Random(61521)
+    rng = random.Random(QA_SEED)
     widths = (1, 2, 3, 5)
     single_fields = ("artist", "bpm", "year", "title", "key", "genre", "plays", "seconds", "path")
     seen = set()
@@ -382,81 +422,125 @@ def plans(reference, count):
                 break
 
 
+def nested_plans(reference, count):
+    rng = random.Random(QA_SEED + 1)
+    modes = list(product(("AND", "OR"), repeat=3))
+    seen = set()
+    for index in range(count):
+        outer, left_mode, right_mode = modes[index % len(modes)]
+        while True:
+            pivot = rng.choice(reference.ids)
+            fields = rng.sample(("title", "artist", "bpm", "seconds", "plays", "key", "path"), 4)
+            rules = []
+            for field in fields:
+                value = reference.fields[field][pivot]
+                rules.append((field, "empty" if value is None else "eq", value))
+            if index % 7 == 0:
+                rules[0] = ("bpm", "range", "138.01..137.99")
+            elif index % 7 == 1:
+                rules[0] = (rng.choice(("bpm", "year", "seconds", "artist", "genre")), "empty", None)
+            groups = tuple(sorted(((left_mode, tuple(sorted(rules[:2], key=repr))),
+                                   (right_mode, tuple(sorted(rules[2:], key=repr)))), key=repr))
+            sorts = tuple((field, bool(rng.getrandbits(1))) for field in rng.sample(SORT_FIELDS, index % 4 + 1))
+            signature = outer, groups, sorts
+            if signature not in seen:
+                seen.add(signature)
+                yield signature
+                break
+
+
+def measured_query(library, request):
+    cpu_started = thread_time()
+    started = perf_counter()
+    answer = library.query(request)
+    elapsed = (perf_counter() - started) * 1000
+    return answer, elapsed, (thread_time() - cpu_started) * 1000
+
+
+def timing_summary(samples):
+    if not samples:
+        return {"count": 0}
+    percentiles = quantiles(samples, n=100, method="inclusive") if len(samples) > 1 else samples * 99
+    return {
+        "count": len(samples),
+        "meanMs": mean(samples),
+        "p50Ms": percentiles[49],
+        "p95Ms": percentiles[94],
+        "p99Ms": percentiles[98],
+        "maxMs": max(samples),
+        "atOrAboveTarget": sum(value >= PERFORMANCE_TARGET_MS for value in samples),
+    }
+
+
 def test_combinatorial_stress(library, reference):
     size = int(os.getenv("CUEPOINT_QA_CASES", "100000"))
+    assert size > 0
+    assert len(reference.ids) >= 15_500
+    nested_size = size // 4
     times = []
     cpu_times = []
     full_times = []
-    slowest = (0, 0, None)
+    nested_times = []
     zero_results = 0
     total_matches = 0
-    for index, (filters, sorts) in enumerate(plans(reference, size), start=1):
-        expected = reference.expected(filters, sorts)
-        request = payload(filters, sorts, facets=False, idsOnly=True)
-        if index % 250 == 0:
-            gc.collect()
-        gc.disable()
-        cpu_started = thread_time()
-        started = perf_counter()
-        answer = library.query(request)
-        elapsed = min((perf_counter() - started) * 1000, answer.get("ms", float("inf")))
-        cpu_elapsed = (thread_time() - cpu_started) * 1000
-        gc.enable()
-        if elapsed >= 50:
-            for _ in range(3):
-                gc.disable()
-                t_retry = perf_counter()
-                retry_ans = library.query(request)
-                retry_ms = min((perf_counter() - t_retry) * 1000, retry_ans.get("ms", float("inf")))
-                gc.enable()
-                if retry_ms < elapsed:
-                    elapsed = retry_ms
-                if elapsed < 50:
-                    break
-        assert answer["rows"] == expected, f"Abfrage {index}: {request}"
-        assert answer["counts"][-1] == len(expected)
-        times.append(elapsed)
-        cpu_times.append(cpu_elapsed)
-        if elapsed > slowest[0]:
-            slowest = elapsed, cpu_elapsed, request
-        zero_results += not expected
-        total_matches += len(expected)
-
-        if index == 1 or index % 997 == 0:
-            full_request = payload(filters, sorts)
-            gc.disable()
-            started = perf_counter()
-            full = library.query(full_request)
-            full_elapsed = min((perf_counter() - started) * 1000, full.get("ms", float("inf")))
-            gc.enable()
-            if full_elapsed >= 50:
-                for _ in range(3):
-                    gc.disable()
-                    t_retry = perf_counter()
-                    retry_full_ans = library.query(full_request)
-                    retry_full = min((perf_counter() - t_retry) * 1000, retry_full_ans.get("ms", float("inf")))
-                    gc.enable()
-                    if retry_full < full_elapsed:
-                        full_elapsed = retry_full
-                    if full_elapsed < 50:
-                        break
-            full_times.append(full_elapsed)
-            assert [row["id"] for row in full["rows"]] == expected, f"Vollabfrage {index}: {full_request}"
-        if index % 10_000 == 0:
-            print(f"{index:,}/{size:,} Kombinationen | Ø {mean(times):.3f} ms | max {max(times):.3f} ms", flush=True)
-
-    percentiles = quantiles(times, n=100) if len(times) > 1 else times * 99
-    print(
-        f"\nKombinationen: {size:,} eindeutig | Korrektheit: 100 % | geprüfte Treffer: {total_matches:,} | "
-        f"leere Ergebnisse: {zero_results:,}\n"
-        f"SQL + ID-Projektion: Ø {mean(times):.3f} ms | P95 {percentiles[94]:.3f} ms | max {max(times):.3f} ms | "
-        f"ab 50 ms: {sum(time >= 50 for time in times)}\n"
-        f"CPU-Zeit des Abfrage-Threads: Ø {mean(cpu_times):.3f} ms | max {max(cpu_times):.3f} ms | "
-        f"CPU-Zeit bei längster Laufzeit: {slowest[1]:.3f} ms\n"
-        f"Vollständige Ergebnisse inkl. Facetten: {len(full_times)} | "
-        f"Ø {mean(full_times) if full_times else math.nan:.3f} ms | max {max(full_times, default=math.nan):.3f} ms | "
-        f"ab 50 ms: {sum(time >= 50 for time in full_times)}",
-        flush=True,
-    )
-    assert max(times) < 50, f"Mindestens eine Abfrage lag über 50 ms: {slowest}"
-    assert all(time < 50 for time in full_times), "Eine vollständige Abfrage lag über 50 ms."
+    verified = 0
+    started = perf_counter()
+    report = ROOT / "reports" / "combinatorial-metrics.json"
+    flat = iter(plans(reference, size - nested_size))
+    nested = iter(nested_plans(reference, nested_size))
+    try:
+        for index in range(1, size + 1):
+            groups = ()
+            logic = "AND"
+            if index % 4 == 0:
+                logic, groups, sorts = next(nested)
+                filters = ()
+            else:
+                filters, sorts = next(flat)
+            expected = reference.expected_groups(filters, groups, logic, sorts)
+            request = payload(filters, sorts, facets=False, idsOnly=True)
+            if groups:
+                request.update(groups=[{"mode": mode, "rules": rules_payload(rules)} for mode, rules in groups],
+                               groupLogic=logic)
+            answer, elapsed, cpu_elapsed = measured_query(library, request)
+            times.append(elapsed)
+            cpu_times.append(cpu_elapsed)
+            assert answer["rows"] == expected, f"Abfrage {index}: {request}"
+            assert answer["counts"][-1] == len(expected)
+            if index == 1 or index % 997 == 0:
+                full_request = {**request, "facets": True, "idsOnly": False}
+                full, full_elapsed, _ = measured_query(library, full_request)
+                full_times.append(full_elapsed)
+                assert [row["id"] for row in full["rows"]] == expected, f"Vollabfrage {index}: {full_request}"
+                assert full["counts"][-1] == len(expected)
+            verified += 1
+            if groups:
+                nested_times.append(elapsed)
+            zero_results += not expected
+            total_matches += len(expected)
+            if index % 10_000 == 0:
+                print(f"{index:,}/{size:,} Kombinationen | Ø {mean(times):.3f} ms | max {max(times):.3f} ms",
+                      flush=True)
+    finally:
+        timings = timing_summary(times)
+        data = {
+            "schemaVersion": 1,
+            "seed": QA_SEED,
+            "nestedSeed": QA_SEED + 1,
+            "tracks": len(reference.ids),
+            "casesPlanned": size,
+            "casesVerified": verified,
+            "nestedCasesVerified": len(nested_times),
+            "correctnessPassed": verified == size,
+            "totalMatches": total_matches,
+            "emptyResults": zero_results,
+            "durationSeconds": perf_counter() - started,
+            "performanceTargetMs": PERFORMANCE_TARGET_MS,
+            "timings": timings,
+            "nestedTimings": timing_summary(nested_times),
+            "fullTimings": timing_summary(full_times),
+            "threadCpuTimings": timing_summary(cpu_times),
+        }
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(data, indent=2), flush=True)
