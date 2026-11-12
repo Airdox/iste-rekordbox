@@ -317,6 +317,66 @@ def test_library_all_rule_branches_ranges_sorts_projections_and_waveform(tmp_pat
         bad_groups = ["bad", {"mode": "AND", "rules": [{"id": "title", "op": "eq", "value": "  "}]}]
         assert len(lib.query({"groups": bad_groups})["rows"]) == 3
 
+        # Groups (AND/OR modes + groupLogic AND/OR), numeric range, empty text cmp, projection cache hit
+        bpm_rng = lib.query({"rules": [{"id": "bpm", "op": "range", "value": "120..136"}]})
+        assert [r["id"] for r in bpm_rng["rows"]] == ["1", "2"]
+        title_rng = lib.query({"rules": [{"id": "title", "op": "range", "value": "A..Z"}]})
+        assert {r["id"] for r in title_rng["rows"]} == {"1", "2"}
+        assert len(lib.query({"rules": [{"id": "title", "op": "gte", "value": ""}]})["rows"]) == 3
+        assert [r["id"] for r in lib.query({"rules": [{"id": "title", "op": "eq", "value": "Alpha"}]})["rows"]] == ["1"]
+        title_neq = lib.query({"rules": [{"id": "title", "op": "neq", "value": "Alpha"}]})
+        assert {r["id"] for r in title_neq["rows"]} == {"2"}
+        assert len(lib.query({"rules": [{"id": "id", "op": "neq", "value": "999"}]})["rows"]) == 3
+        assert [r["id"] for r in lib.query({"rules": [{"id": "bpm", "op": "gte", "value": "130"}]})["rows"]] == ["1"]
+
+        # Repeated projection with same fields exercises _project cache hit
+        p1 = lib.query({"fields": ["album"]})
+        p2 = lib.query({"fields": ["album"], "excludeId": "missing_id"})
+        assert len(p1["rows"]) == len(p2["rows"]) == 3
+
+        # select_many single/multi genre, non-string ignored, unknown key, numeric bounds, empty facet mask
+        assert [r["id"] for r in lib.query({"genres": ["Techno"]})["rows"]] == ["1"]
+        assert {r["id"] for r in lib.query({"genres": ["Techno", "House"]})["rows"]} == {"1", "2"}
+        assert len(lib.query({"genres": [123]})["rows"]) == 3
+        assert lib.query({"keys": ["BAD_KEY"]})["rows"] == []
+        bounded = lib.query({
+            "bpmMin": 125, "bpmMax": 140, "rating": 4,
+            "yearMin": 2020, "yearMax": 2025, "plays": 1,
+        })
+        assert [r["id"] for r in bounded["rows"]] == ["1"]
+        empty_res = lib.query({"rules": [{"id": "bpm", "op": "gte", "value": "500"}], "facets": True})
+        assert empty_res["rows"] == [] and empty_res["genres"] == [] and empty_res["histogram"] == []
+        assert lib.query({"bpmMin": 500, "facets": True})["keys"] == []
+
+        grp_and_or = lib.query({
+            "groupLogic": "OR",
+            "groups": [
+                {
+                    "mode": "AND",
+                    "rules": [
+                        {"id": "bpm", "op": "eq", "value": "999"},
+                        {"id": "title", "op": "eq", "value": "Alpha"},
+                    ],
+                },
+                {
+                    "mode": "OR",
+                    "rules": [
+                        {"id": "bpm", "op": "eq", "value": "999"},
+                        {"id": "title", "op": "eq", "value": "Beta"},
+                    ],
+                },
+            ],
+        })
+        assert [r["id"] for r in grp_and_or["rows"]] == ["2"]
+        grp_and = lib.query({
+            "groupLogic": "AND",
+            "groups": [
+                {"mode": "AND", "rules": [{"id": "bpm", "op": "gte", "value": "120"}]},
+                {"mode": "OR", "rules": [{"id": "genre", "op": "eq", "value": "Techno"}]},
+            ],
+        })
+        assert [r["id"] for r in grp_and["rows"]] == ["1"]
+
         # match_media paths
         assert lib.match_media(None) is None
         m1 = lib.match_media({"id": "9", "title": "Alpha", "artist": "Klara", "path": "/usb/a.mp3", "seconds": 300})
@@ -334,6 +394,15 @@ def test_library_all_rule_branches_ranges_sorts_projections_and_waveform(tmp_pat
             "original_id": "1",
         })
         assert m4["id"] == "1"
+        m5 = lib.match_media({
+            "id": "9",
+            "title": "Other",
+            "artist": "Other",
+            "path": "/usb/other.mp3",
+            "seconds": 999,
+            "original_id": "1",
+        })
+        assert m5 is None
 
         # recommendations empty & harmonic off
         assert lib.recommendations(None, "8A", None, 4, True) == []

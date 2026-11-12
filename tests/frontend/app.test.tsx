@@ -645,6 +645,23 @@ describe('App (main.tsx)', () => {
         { state: 'discovering', error: null, anchor: null, matches: [], media: [], decks: [] },
         { state: 'error', error: 'Socket Fehler', anchor: null, matches: [], media: [], decks: [] },
         { state: 'off', error: null, anchor: null, matches: [], media: [], decks: [] },
+        {
+          state: 'rekordbox',
+          error: null,
+          anchor: null,
+          matches: [],
+          media: [{
+            source: 1,
+            slot: 3,
+            path: 'E:/USB/exportLibrary.db',
+            kind: 'OneLibrary',
+            total: 10,
+            genres: 2,
+            bpmBounds: [125, 140],
+            withKey: 9,
+          }],
+          decks: [],
+        },
       ],
     })
     const baseImpl = reqSpy.getMockImplementation()!
@@ -730,9 +747,15 @@ describe('App (main.tsx)', () => {
     fireEvent.click(document.querySelector('#clearSet')!)
     fireEvent.keyDown(window, { key: 'Escape' })
 
+    // Poll through remaining live states so media & rekordbox state are active before opening hwModal
+    await waitFor(() => {
+      const liveCalls = reqSpy.mock.calls.filter(([m]) => m === 'live')
+      expect(liveCalls.length).toBeGreaterThanOrEqual(6)
+    }, { timeout: 5000 })
+
     fireEvent.click(document.querySelector('#liveStatusBtn')!)
     const hwModal = within(document.querySelector('.modal')! as HTMLElement)
-    for (const label of ['Pro DJ Link verbinden', 'Demo-Link', 'Trennen', /\) binden$/]) {
+    for (const label of ['Pro DJ Link verbinden', 'Demo-Link', 'Trennen', /\) binden$/, 'Lösen']) {
       await waitFor(() => {
         const btn = hwModal.queryByText(label)
         if (btn) expect(btn).not.toBeDisabled()
@@ -741,12 +764,6 @@ describe('App (main.tsx)', () => {
       if (btn) fireEvent.click(btn)
     }
     fireEvent.keyDown(window, { key: 'Escape' })
-
-    // Poll through remaining live states
-    await waitFor(() => {
-      const liveCalls = reqSpy.mock.calls.filter(([m]) => m === 'live')
-      expect(liveCalls.length).toBeGreaterThanOrEqual(5)
-    }, { timeout: 5000 })
   }, 30000)
 
   it('falls back cleanly when localStorage holds non-array values or empty columns', async () => {
