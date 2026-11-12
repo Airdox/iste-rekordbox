@@ -226,15 +226,13 @@ describe('camelot-wheel.tsx', () => {
       '8A (aktuelle Tonart) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
     )
     const chip7A = container.querySelector('.keychip[data-key="7A"]')!
-    expect(chip7A).not.toHaveClass('active')
-    expect(chip7A).not.toHaveClass('current')
+    expect(chip7A).toHaveClass('keychip', { exact: true })
     expect(chip7A).toHaveAttribute(
       'title',
       '7A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
     )
     const chip9A = container.querySelector('.keychip[data-key="9A"]')!
-    expect(chip9A).toHaveClass('active')
-    expect(chip9A).not.toHaveClass('current')
+    expect(chip9A).toHaveClass('keychip active', { exact: true })
     expect(chip9A).toHaveAttribute(
       'title',
       '9A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
@@ -292,5 +290,6 @@ describe('camelot-wheel.tsx', () => {
     )
     expect(screen.getByText('Fixierte Referenz')).toBeInTheDocument()
     expect(screen.getByText('Keine Keys gewählt – klicke ein Segment')).toBeInTheDocument()
+    expect(chip8A).toHaveClass('keychip current', { exact: true })
   })
 })
