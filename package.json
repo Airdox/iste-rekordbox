@@ -1,0 +1,62 @@
+{
+  "name": "cuepoint-library",
+  "version": "1.1.0",
+  "description": "Rekordbox library and live match console",
+  "author": "Cuepoint",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "start": "electron .",
+    "test:ui": "node tests/electron-smoke.cjs",
+    "package:win": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1 && electron-builder --win portable"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@fontsource/inter": "^5.2.8",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.23",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "electron": "^45.3.1",
+    "electron-builder": "^26.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.0"
+  },
+  "build": {
+    "appId": "local.cuepoint.library",
+    "productName": "Cuepoint",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json",
+      "!node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/python/cuepoint-core",
+        "to": "core"
+      },
+      {
+        "from": "build/synthetic_test_master.db",
+        "to": "synthetic_test_master.db"
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "artifactName": "Cuepoint-${version}-Windows-${arch}.${ext}"
+  }
+}
