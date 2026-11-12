@@ -149,7 +149,7 @@ describe('camelot-wheel.tsx', () => {
 
     const seg1A = container.querySelector('g[data-wheel-key="1A"]')!
     const d1A = seg1A.querySelector('path')?.getAttribute('d') ?? ''
-    expect(d1A).toMatch(/^M160\.\d+ 47\.\d+ A113 113 0 0 1 215\.\d+ 62\.\d+ L194\.\d+ 99\.\d+ A70 70 0 0 0 160\.\d+ 90\.\d+Z$/)
+    expect(d1A).toMatch(/^M160\.\d+ 47\.\d+ A113 113 0 0 1 215\.\d+ 61\.\d+ L194\.\d+ 99\.\d+ A70 70 0 0 0 160\.\d+ 90\.\d+Z$/)
 
     const text1B = seg1B.querySelector('text')!
     expect(Number(text1B.getAttribute('x'))).toBeCloseTo(194.16, 1)

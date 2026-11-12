@@ -38,10 +38,42 @@ describe('metadata.ts', () => {
     expect(keys).toHaveLength(24)
     expect(keys[0]).toBe('1A')
     expect(keys[23]).toBe('12B')
-    expect(builtInPresets.map((p) => p.id)).toEqual(['techno', 'warmup', 'unplayed'])
-    expect(builtInPresets.find((p) => p.id === 'unplayed')?.groups[0].rules).toEqual([
-      { id: 'plays', op: 'lte', value: '2' },
-      { id: 'rating', op: 'gte', value: '3' },
+    expect(opsText).toEqual({
+      contains: 'enthält',
+      eq: 'ist gleich',
+      neq: 'ist nicht',
+      gte: 'mindestens',
+      lte: 'höchstens',
+      range: 'zwischen',
+      empty: 'ist leer',
+    })
+    expect(builtInPresets).toEqual([
+      {
+        id: 'techno',
+        name: 'Techno / Peak',
+        logic: 'AND',
+        groups: [
+          { mode: 'OR', rules: [{ id: 'genre', op: 'eq', value: 'Techno' }, { id: 'genre', op: 'eq', value: 'Hardgroove' }] },
+          { mode: 'AND', rules: [{ id: 'bpm', op: 'range', value: '134..142' }, { id: 'rating', op: 'gte', value: '4' }] },
+        ],
+      },
+      {
+        id: 'warmup',
+        name: 'Melodic Warmup',
+        logic: 'AND',
+        groups: [
+          { mode: 'OR', rules: [{ id: 'genre', op: 'eq', value: 'Melodic House' }, { id: 'genre', op: 'eq', value: 'Deep House' }] },
+          { mode: 'AND', rules: [{ id: 'bpm', op: 'range', value: '118..130' }] },
+        ],
+      },
+      {
+        id: 'unplayed',
+        name: 'Selten gespielt',
+        logic: 'AND',
+        groups: [
+          { mode: 'AND', rules: [{ id: 'plays', op: 'lte', value: '2' }, { id: 'rating', op: 'gte', value: '3' }] },
+        ],
+      },
     ])
   })
 
@@ -122,19 +154,21 @@ describe('api.ts', () => {
     expect(basename('E:\\Music\\Set\\Track.mp3')).toBe('Track.mp3')
     expect(basename('/Users/dj/track.wav')).toBe('track.wav')
     expect(basename(null)).toBe('')
-    expect(camelotColor('1A')).toBe('#84dfd1')
-    expect(camelotColor('8A')).toBe('#c9ace8')
-    expect(camelotColor('10A')).toBe('#98b9ed')
-    expect(camelotColor('11A')).toBe('#83cfec')
-    expect(camelotColor('12A')).toBe('#76dce4')
-    expect(camelotColor('10B')).toBe('#98b9ed')
-    expect(camelotColor('11B')).toBe('#83cfec')
-    expect(camelotColor('12B')).toBe('#76dce4')
+    const expectedColors = [
+      '#84dfd1', '#9be1b0', '#b9df98', '#d7e491', '#e8d6a0', '#e8bcab',
+      '#e1afd0', '#c9ace8', '#aeb5ed', '#98b9ed', '#83cfec', '#76dce4',
+    ]
+    expectedColors.forEach((color, i) => {
+      expect(camelotColor(`${i + 1}A`)).toBe(color)
+      expect(camelotColor(`${i + 1}B`)).toBe(color)
+    })
     expect(camelotColor('invalid')).toBe('#a2a6ba')
   })
 
   it('computes relatedKeys and harmonicTransition accurately including wrap-around 1/12', () => {
     expect(relatedKeys('bad')).toEqual([])
+    expect(relatedKeys('8A_invalid')).toEqual([])
+    expect(relatedKeys('invalid_8A')).toEqual([])
     expect(relatedKeys(' 12a ')).toEqual(['11A', '12A', '1A', '12B'])
     expect(relatedKeys('1B')).toEqual(['12B', '1B', '2B', '1A'])
 
