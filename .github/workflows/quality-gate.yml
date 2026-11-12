@@ -254,9 +254,6 @@ jobs:
         run: |
           npm ci
           pip install -r requirements-dev.txt
-          $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
-          New-Item -ItemType Directory -Force -Path .venv/Scripts | Out-Null
-          Copy-Item (Get-Command pyinstaller).Source .venv/Scripts/pyinstaller.exe -Force -ErrorAction SilentlyContinue
           npm run package:win
 
       - name: Verify packaged Windows EXE with Playwright Smoke Suite
