@@ -151,11 +151,9 @@ class Core:
                     d["deck"] != self._last_anchor,
                     d["deck"],
                 ),
-                default=None,
             )
 
-        if selected:
-            self._last_anchor = selected["deck"]
+        self._last_anchor = selected["deck"]
         return selected
 
     def handle(self, method, params):

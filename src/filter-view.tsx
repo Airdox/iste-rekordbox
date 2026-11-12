@@ -116,8 +116,7 @@ export function FilterView({
 
   const tableSorting: SortingState = sortStages.map((st) => ({ id: st.id, desc: st.desc }))
 
-  const handleHeaderSort = (updater: SortingState | ((old: SortingState) => SortingState)) => {
-    const next = typeof updater === 'function' ? updater(tableSorting) : updater
+  const handleHeaderSort = (next: SortingState) => {
     if (!next.length) {
       onSortStagesChange([])
       return
