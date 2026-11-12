@@ -534,7 +534,10 @@ describe('App (main.tsx)', () => {
     fireEvent.click(hwModal.getByText(/USB-Datenbank wählen/))
     fireEvent.click(hwModal.getByText('Lösen'))
     const deckCard = hwModal.getByText(/Deck 1 · rekordbox/).closest('.hw-deck')
-    if (deckCard) fireEvent.click(deckCard)
+    if (deckCard) {
+      fireEvent.click(deckCard)
+      await waitFor(() => expect(reqSpy).toHaveBeenCalledWith('live', expect.objectContaining({ deck: 1 })), { timeout: 2000 })
+    }
     const inspectBtn = hwModal.queryByText('In Bibliothek wählen')
     if (inspectBtn) {
       fireEvent.click(inspectBtn)
@@ -589,9 +592,170 @@ describe('App (main.tsx)', () => {
       if (method === 'rekordboxTransport') throw new Error('Transport fehlgeschlagen')
       return baseImpl(method, params)
     })
-    fireEvent.click(liveInspector.getByRole('button', { name: /Deck A/i }))
+    fireEvent.click(liveInspector.getByText(/Deck A/i))
     await waitFor(() => {
       expect(document.querySelector('#toast')?.textContent).toMatch(/Transport fehlgeschlagen/i)
     })
   }, 30000)
+
+  it('covers error branches, canceled pickers, live status variants, localStorage and null track fields', async () => {
+    localStorage.clear()
+    localStorage.setItem('airdox.columns', JSON.stringify(['title', 'bpm']))
+    localStorage.setItem('airdox.setTracks', JSON.stringify([{
+      id: 'pre1',
+      title: 'Preloaded Set Track',
+      artist: 'Pre',
+      genre: 'Techno',
+      bpm: 136,
+      key: '8A',
+      rating: 4,
+      seconds: 310,
+      year: 2024,
+    }]))
+    localStorage.setItem('airdox.customPresets', JSON.stringify([
+      { id: 'c1', name: 'Saved', logic: 'AND', groups: [] },
+    ]))
+
+    const reqSpy = makeMockBridge({
+      liveResponses: [
+        {
+          state: 'demo',
+          error: null,
+          anchor: 1,
+          matches: [],
+          media: [],
+          decks: [{
+            deck: 1,
+            name: 'Demo',
+            source: 0,
+            slot: 0,
+            slotName: 'Demo',
+            trackId: 'd0',
+            bpm: null,
+            key: null,
+            title: null,
+            artist: null,
+            libraryId: null,
+            playing: false,
+            master: false,
+            fader: null,
+          }],
+        },
+        { state: 'listening', error: null, anchor: null, matches: [], media: [], decks: [] },
+        { state: 'discovering', error: null, anchor: null, matches: [], media: [], decks: [] },
+        { state: 'error', error: 'Socket Fehler', anchor: null, matches: [], media: [], decks: [] },
+        { state: 'off', error: null, anchor: null, matches: [], media: [], decks: [] },
+      ],
+    })
+    const baseImpl = reqSpy.getMockImplementation()!
+    let failMode = false
+    reqSpy.mockImplementation(async (method: string, params?: object) => {
+      if (method === 'open') return baseImpl(method, params)
+      if (method === 'query' && !failMode) {
+        return {
+          rows: [{
+            id: 'tnull',
+            title: '',
+            artist: '',
+            genre: '',
+            bpm: null,
+            key: null,
+            rating: 0,
+            seconds: null,
+            year: null,
+          }],
+          counts: [1, 1, 1, 0],
+          genres: [],
+          keys: [],
+          histogram: [],
+          ms: 1.0,
+        }
+      }
+      if (failMode && ['linkStart', 'linkStop', 'demoLink', 'bindMedia', 'unbindMedia', 'detail', 'query'].includes(method)) {
+        throw new Error(`Boom ${method}`)
+      }
+      return baseImpl(method, params)
+    })
+    ;(window.cuepoint!.choose as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+
+    render(<App />)
+    await waitFor(() => expect(document.querySelector('#playingName')).toBeInTheDocument())
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('#view-live .track-row').length).toBeGreaterThan(0)
+    }, { timeout: 6000 })
+
+    // LiveView footer buttons (toFilterStudio, toSetBuilder, hardwareConfigBtn)
+    fireEvent.click(document.querySelector('#toFilterStudio')!)
+    expect(document.querySelector('#view-filter')).toHaveClass('active')
+    fireEvent.click(document.querySelector('#toSetBuilder')!)
+    expect(document.querySelector('#view-set')).toHaveClass('active')
+    fireEvent.click(document.querySelector('#tab-live')!)
+    fireEvent.click(document.querySelector('#hardwareConfigBtn')!)
+    fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Schließen'))
+
+    // Pin & unpin with null activeDeck key
+    fireEvent.click(document.querySelector('#pinTrack')!)
+    fireEvent.click(document.querySelector('#pinTrack')!)
+
+    // Find modal with track having null key/bpm/artist/path (no "Im Explorer zeigen" button)
+    fireEvent.click(within(document.querySelector('#liveInspector')! as HTMLElement).getByText(/Details/i))
+    const findModal = within(document.querySelector('.modal')! as HTMLElement)
+    expect(findModal.queryByText('Im Explorer zeigen')).toBeNull()
+    fireEvent.click(findModal.getByText('Schließen'))
+
+    // Source menu canceled pickers (choose returns null)
+    fireEvent.click(document.querySelector('#sourceButton')!)
+    fireEvent.click(within(document.querySelector('.source-menu')! as HTMLElement).getByText(/Datenbankdatei öffnen/i))
+    fireEvent.click(document.querySelector('#sourceButton')!)
+    fireEvent.click(within(document.querySelector('.source-menu')! as HTMLElement).getByText(/Rekordbox-Ordner öffnen/i))
+
+    // Failure mode for hardware actions & query/detail catch branches
+    failMode = true
+    fireEvent.click(document.querySelector('#changeTrack')!)
+    fireEvent.click(document.querySelector('#tab-filter')!)
+    fireEvent.click(document.querySelector('#applyFilter')!)
+    await waitFor(() => {
+      expect(document.querySelector('#toast')?.textContent).toMatch(/Boom query/i)
+    }, { timeout: 3000 })
+
+    // Close modals via Escape to exercise onClose handlers
+    fireEvent.click(document.querySelector('#helpBtn')!)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(document.querySelector('#savePreset')!)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(document.querySelector('#tab-set')!)
+    fireEvent.click(document.querySelector('#explainImport')!)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(document.querySelector('#clearSet')!)
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    fireEvent.click(document.querySelector('#liveStatusBtn')!)
+    const hwModal = within(document.querySelector('.modal')! as HTMLElement)
+    for (const label of ['Pro DJ Link verbinden', 'Demo-Link', 'Trennen', /\) binden$/]) {
+      await waitFor(() => {
+        const btn = hwModal.queryByText(label)
+        if (btn) expect(btn).not.toBeDisabled()
+      }, { timeout: 2000 })
+      const btn = hwModal.queryByText(label)
+      if (btn) fireEvent.click(btn)
+    }
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    // Poll through remaining live states
+    await waitFor(() => {
+      const liveCalls = reqSpy.mock.calls.filter(([m]) => m === 'live')
+      expect(liveCalls.length).toBeGreaterThanOrEqual(5)
+    }, { timeout: 5000 })
+  }, 30000)
+
+  it('falls back cleanly when localStorage holds non-array values or empty columns', async () => {
+    localStorage.setItem('airdox.setTracks', '{"not":"array"}')
+    localStorage.setItem('airdox.columns', '[]')
+    localStorage.setItem('airdox.customPresets', '{"not":"array"}')
+    const reqSpy = makeMockBridge()
+    const { unmount } = render(<App />)
+    await waitFor(() => expect(reqSpy).toHaveBeenCalledWith('open', { path: undefined }))
+    unmount()
+  })
 })

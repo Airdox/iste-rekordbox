@@ -460,6 +460,54 @@ describe('live-view.tsx', () => {
     expect(onSortCodeChange).toHaveBeenCalledWith('yearold')
     fireEvent.click(within(container.querySelector('#liveInspector')! as HTMLElement).getByRole('button', { name: /In Rekordbox/i }))
     expect(onFindRekordbox).toHaveBeenCalledWith(sampleTracks[0])
+
+    // Empty referenceKey + track with empty artist/genre/null year + resetting sort to [] via sorting reset
+    rerender(
+      <LiveView
+        active
+        liveTrack={null}
+        referenceKey=""
+        pinned={false}
+        selectedKeys={['8A']}
+        autoFollow
+        includeCurrent
+        onToggleKey={vi.fn()}
+        onSelectAllHarmonic={vi.fn()}
+        onAutoFollowChange={vi.fn()}
+        onIncludeCurrentChange={vi.fn()}
+        search=""
+        onSearchChange={onSearchChange}
+        sortCode="title"
+        onSortCodeChange={onSortCodeChange}
+        useBpm={false}
+        onUseBpmChange={onUseBpmChange}
+        tolerance={4}
+        onToleranceChange={onToleranceChange}
+        sameGenre
+        onSameGenreChange={onSameGenreChange}
+        unplayedOnly={false}
+        onUnplayedOnlyChange={onUnplayedOnlyChange}
+        minRating={0}
+        onMinRatingChange={onMinRatingChange}
+        results={{ rows: sampleTracks, counts: [1, 1, 1, 0], genres: [], keys: [], histogram: [], ms: 1 }}
+        busy={false}
+        revision={4}
+        visibleColumns={['title', 'artist', 'bpm', 'key', 'genre', 'rating', 'year', 'plays'] as MetadataId[]}
+        onVisibleColumnsChange={vi.fn()}
+        selectedTrack={sampleTracks[2]}
+        onSelectTrack={vi.fn()}
+        onAddToSet={onAddToSet}
+        onPinAsReference={vi.fn()}
+        onFindRekordbox={onFindRekordbox}
+        setIds={new Set()}
+        setCount={0}
+        onGoFilterStudio={onGoFilterStudio}
+        onGoSetBuilder={onGoSetBuilder}
+        onOpenHardware={onOpenHardware}
+        liveStateText="Offline"
+      />,
+    )
+    expect(screen.getByText(/Referenz: –/)).toBeInTheDocument()
   })
 })
 
@@ -614,7 +662,7 @@ describe('filter-view.tsx', () => {
     fireEvent.click(within(filterInspector as HTMLElement).getByRole('button', { name: /Details/i }))
     expect(onFindRekordbox).toHaveBeenCalledWith(sampleTracks[0])
 
-    // Empty search / no sort stages / empty set / empty selection
+    // Empty search / no sort stages / 1-track set / empty selection / fallback without onRekordboxAction
     rerender(
       <FilterView
         active={false}
@@ -644,6 +692,52 @@ describe('filter-view.tsx', () => {
         visibleColumns={defaultColumns}
         onVisibleColumnsChange={vi.fn()}
         referenceKey="8A"
+        selectedTrack={sampleTracks[2]}
+        onSelectTrack={vi.fn()}
+        onPinReference={vi.fn()}
+        onAddToSet={onAddToSet}
+        onRemoveFromSet={onRemoveFromSet}
+        onFindRekordbox={onFindRekordbox}
+        setTracks={[sampleTracks[0]]}
+        setIds={new Set(['t1'])}
+        onOpenSetBuilder={onOpenSetBuilder}
+      />,
+    )
+    expect(screen.getByText(/Keine Sortierstufe/)).toBeInTheDocument()
+    expect(screen.getByText('1 Track')).toBeInTheDocument()
+    fireEvent.click(within(container.querySelector('#filterInspector')! as HTMLElement).getByRole('button', { name: /In Rekordbox/i }))
+    expect(onFindRekordbox).toHaveBeenCalledWith(sampleTracks[2])
+
+    // Final rerender with selectedTrack=null and empty setTracks
+    rerender(
+      <FilterView
+        active={false}
+        presets={[]}
+        selectedPresetId=""
+        onSelectPreset={onSelectPreset}
+        onOpenSavePreset={onOpenSavePreset}
+        onResetFilters={onResetFilters}
+        groupLogic="OR"
+        onGroupLogicChange={onGroupLogicChange}
+        groups={[{ uid: 9, mode: 'AND', rules: [{ uid: 10, id: 'title', op: 'contains', value: '' }] }]}
+        onAddGroup={onAddGroup}
+        onRemoveGroup={onRemoveGroup}
+        onGroupModeChange={onGroupModeChange}
+        onAddRule={onAddRule}
+        onRemoveRule={onRemoveRule}
+        onRuleChange={onRuleChange}
+        onApplyFilter={onApplyFilter}
+        search=""
+        onSearchChange={onSearchChange}
+        sortStages={[{ id: 'bpm', desc: true }]}
+        onSortStagesChange={onSortStagesChange}
+        results={sampleResults}
+        totalLibraryCount={3}
+        busy={false}
+        revision={3}
+        visibleColumns={defaultColumns}
+        onVisibleColumnsChange={vi.fn()}
+        referenceKey="8A"
         selectedTrack={null}
         onSelectTrack={vi.fn()}
         onPinReference={vi.fn()}
@@ -655,7 +749,7 @@ describe('filter-view.tsx', () => {
         onOpenSetBuilder={onOpenSetBuilder}
       />,
     )
-    expect(screen.getByText(/Keine Sortierstufe/)).toBeInTheDocument()
+    expect(screen.getByText('Klicke einen Track in der Tabelle.')).toBeInTheDocument()
   })
 })
 
