@@ -342,6 +342,9 @@ async function run() {
 
     // Reload preserves Set in localStorage!
     await page.reload()
+    await page.waitForFunction(() => document.querySelector('#sidebarTotal')?.textContent === '15.500', undefined, {
+      timeout: 45_000,
+    })
     await page.locator('#tab-set').click()
     await page.waitForFunction(() => document.querySelectorAll('#view-set .setrow').length === 2)
 
@@ -360,6 +363,8 @@ async function run() {
     // ---- 4. HARDWARE / PRO DJ LINK MODAL & HELP MODAL ----
     await page.locator('#liveStatusBtn').click()
     await page.locator('.modal h2', { hasText: 'Hardware, Pro DJ Link & Quellmedien' }).waitFor()
+    await page.locator('.hw-modal button', { hasText: 'Demo-Link' }).click()
+    await page.locator('.hw-deck').first().waitFor()
     await capture(page, captureDir, '04-hardware-modal.png')
     await page.keyboard.press('Escape')
 
