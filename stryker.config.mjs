@@ -5,6 +5,7 @@ export default {
   vitest: {
     configFile: 'vitest.config.ts',
     related: true,
+    pool: 'vmThreads',
   },
   mutate: [
     'src/metadata.ts',
@@ -23,6 +24,6 @@ export default {
     low: 95,
     break: 95,
   },
-  concurrency: 4,
+  concurrency: 2,
   timeoutMS: 20000,
 }
