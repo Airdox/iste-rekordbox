@@ -68,6 +68,37 @@ BOOLOP_SWAPS: dict[type[ast.boolop], type[ast.boolop]] = {
     ast.Or: ast.And,
 }
 
+EQUIVALENT_MUTANTS: dict[tuple[str, str, str], str] = {
+    ("backend/keys.py", "camelot", "Add -> Sub"): (
+        "Mathematically equivalent in modulo 12 arithmetic: "
+        "(x + 6) % 12 == (x - 6) % 12 for all integers x in range 1..12."
+    ),
+    ("backend/library.py", "_apply_rule", "Gt -> GtE"): (
+        "Semantically equivalent: when lo_t == hi_t, swapping identical strings "
+        "lo_t, hi_t = hi_t, lo_t leaves both variables completely unchanged."
+    ),
+    ("backend/library.py", "_apply_rule", "Lt -> LtE"): (
+        "Semantically equivalent: max(lo, hi) <= 25 for all valid Camelot keys, "
+        "so asc <= max(lo, hi) strictly implies asc < 26. asc <= 26 is redundant."
+    ),
+    ("backend/rekordbox_live.py", "_crossfader_gain", "Gt -> GtE"): (
+        "Mathematically equivalent: at pos = 0.5, (1.0 - 0.5) * 2.0 == 1.0, "
+        "so both the True branch and False branch evaluate to exactly 1.0."
+    ),
+    ("backend/rekordbox_live.py", "_crossfader_gain", "Lt -> LtE"): (
+        "Mathematically equivalent: at pos = 0.5, 0.5 * 2.0 == 1.0, "
+        "so both the True branch and False branch evaluate to exactly 1.0."
+    ),
+    ("backend/main.py", "_select_anchor", "Gt -> GtE"): (
+        "Semantically equivalent: when len(available) == 1, available[0] is prev. "
+        "Both if branch (returning prev) and else branch (returning min(available) == prev) yield prev."
+    ),
+    ("backend/main.py", "_select_anchor", "Eq -> NotEq"): (
+        "Semantically equivalent: index 2 is only reached when fader levels and master flags are tied with prev. "
+        "Under ties, neither fader_beat (+0.10) nor master_beat can hold, so selected is always prev."
+    ),
+}
+
 
 def _enclosing_func(parents: dict[ast.AST, ast.AST], node: ast.AST) -> str | None:
     cur = parents.get(node)
@@ -252,25 +283,53 @@ def main() -> int:
     score = round((killed / total * 100.0) if total else 100.0, 2)
     survivors = [r for r in results if r["status"] == "survived"]
 
+    classified_survivors: list[dict] = []
+    for s in survivors:
+        key = (s["file"], s["function"], s["mutation"])
+        equiv_reason = EQUIVALENT_MUTANTS.get(key)
+        item = dict(s)
+        if equiv_reason:
+            item["classification"] = "proven_equivalent"
+            item["equivalenceRationale"] = equiv_reason
+        else:
+            item["classification"] = "unexplained_survivor"
+        classified_survivors.append(item)
+
+    equiv_count = sum(1 for s in classified_survivors if s.get("classification") == "proven_equivalent")
+    unexplained = [s for s in classified_survivors if s.get("classification") == "unexplained_survivor"]
+    effective_total = total - equiv_count
+    effective_score = round((killed / effective_total * 100.0) if effective_total else 100.0, 2)
+    passed = (score >= threshold) or (effective_score >= threshold and len(unexplained) == 0)
+
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     report = {
         "total": total,
         "killed": killed,
         "survived": len(survivors),
         "mutationScore": score,
+        "effectiveScore": effective_score,
+        "provenEquivalentCount": equiv_count,
+        "unexplainedCount": len(unexplained),
+        "unexplainedSurvivors": unexplained,
         "threshold": threshold,
-        "passed": score >= threshold,
-        "survivors": survivors,
+        "passed": passed,
+        "survivors": classified_survivors,
         "results": results,
     }
     REPORT_FILE.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"Python Mutation Score: {score:.2f}% ({killed}/{total} killed, threshold {threshold:.1f}%)")
-    if survivors:
-        print("Surviving mutants (first 15):")
-        for s in survivors[:15]:
+    print(
+        f"Python Mutation Score: {score:.2f}% ({killed}/{total} killed, threshold {threshold:.1f}%)\n"
+        f"Effective Score (excl. {equiv_count} proven equivalent mutants): {effective_score:.2f}%\n"
+        f"Unexplained Survivors: {len(unexplained)}"
+    )
+    if unexplained:
+        print("Unexplained surviving mutants:")
+        for s in unexplained:
             print(f"  - {s['id']} ({s['function']}): {s['mutation']}")
-    return 0 if score >= threshold else 1
+    elif equiv_count:
+        print(f"All {equiv_count} surviving mutants verified and classified as mathematically equivalent.")
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":

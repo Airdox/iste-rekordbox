@@ -39,6 +39,10 @@ describe('metadata.ts', () => {
     expect(keys[0]).toBe('1A')
     expect(keys[23]).toBe('12B')
     expect(builtInPresets.map((p) => p.id)).toEqual(['techno', 'warmup', 'unplayed'])
+    expect(builtInPresets.find((p) => p.id === 'unplayed')?.groups[0].rules).toEqual([
+      { id: 'plays', op: 'lte', value: '2' },
+      { id: 'rating', op: 'gte', value: '3' },
+    ])
   })
 
   it('loads and saves custom presets safely across valid, invalid and throwing storage', () => {
@@ -51,7 +55,10 @@ describe('metadata.ts', () => {
       'airdox.customPresets',
       JSON.stringify([
         { id: 'c1', name: 'My Peak', logic: 'AND', groups: [] },
-        { id: 123, name: 'Bad', groups: [] },
+        { id: 123, name: 'Bad Id', groups: [] },
+        { id: 'bad-name-type', name: 999, groups: [] },
+        { id: 'no-name', groups: [] },
+        { id: 'bad-groups', name: 'Valid Name', groups: 'not-an-array' },
         null,
       ]),
     )

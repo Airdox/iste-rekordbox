@@ -1,5 +1,7 @@
 import io
 import json
+import math
+import numpy as np
 import runpy
 import sqlite3
 import sys
@@ -200,8 +202,11 @@ def test_sources_resolve_snapshot_sqlite_onelibrary_and_legacy(tmp_path, monkeyp
     assert kind == "Device Library" and rows[0]["bpm"] == 126.0 and rows[0]["key_raw"] == "9A"
 
     # usb_sources on non-Windows branch & Windows mock
-    usbs = sources.usb_sources()
-    assert isinstance(usbs, list)
+    with monkeypatch.context() as m:
+        if hasattr(sources, "ctypes") and hasattr(sources.ctypes, "windll"):
+            m.setattr(sources.ctypes.windll.kernel32, "GetDriveTypeW", lambda _: 1)
+        usbs = sources.usb_sources()
+        assert isinstance(usbs, list)
     with monkeypatch.context() as m:
         m.setattr(sources, "os", SimpleNamespace(name="posix"))
         assert sources.usb_sources() == []
@@ -320,6 +325,10 @@ def test_library_all_rule_branches_ranges_sorts_projections_and_waveform(tmp_pat
         # Groups (AND/OR modes + groupLogic AND/OR), numeric range, empty text cmp, projection cache hit
         bpm_rng = lib.query({"rules": [{"id": "bpm", "op": "range", "value": "120..136"}]})
         assert [r["id"] for r in bpm_rng["rows"]] == ["1", "2"]
+        bpm_exact = lib.query({"rules": [{"id": "bpm", "op": "range", "value": "124..135"}]})
+        assert [r["id"] for r in bpm_exact["rows"]] == ["1", "2"]
+        key_exact = lib.query({"rules": [{"id": "key", "op": "range", "value": "8A..9B"}]})
+        assert [r["id"] for r in key_exact["rows"]] == ["1", "2"]
         title_rng = lib.query({"rules": [{"id": "title", "op": "range", "value": "A..Z"}]})
         assert {r["id"] for r in title_rng["rows"]} == {"1", "2"}
         assert len(lib.query({"rules": [{"id": "title", "op": "gte", "value": ""}]})["rows"]) == 3
@@ -819,7 +828,8 @@ def test_main_fader_disambiguation_hysteresis_and_ipc(tmp_path, monkeypatch):
          "key": "9A", "seconds": 310, "playing": True, "master": True},
     ]
     assert core.status({"deck": 1})["anchor"] == 1
-    assert core.status({})["anchor"] in (1, 2)
+    core._last_anchor = None
+    assert core.status({})["anchor"] == 2
     playback.decks[0]["playing"] = False
     playback.decks[1]["playing"] = False
     assert core.status({})["anchor"] is None
@@ -968,6 +978,9 @@ def test_backend_ast_mutation_killer_suite():
     assert lib_mod._parse_range("120..140") == (120.0, 140.0)
     assert lib_mod._parse_range("140..120") == (120.0, 140.0)
     assert lib_mod._parse_range("120..120") == (120.0, 120.0)
+    rng_zero = lib_mod._parse_range("0..-0")
+    assert rng_zero == (0.0, -0.0)
+    assert math.copysign(1.0, rng_zero[0]) == 1.0
     assert lib_mod._parse_range("120 bis 140") == (120.0, 140.0)
     assert lib_mod._parse_range("120 - 140") == (120.0, 140.0)
     assert lib_mod._parse_range("120;140") == (120.0, 140.0)
@@ -1022,8 +1035,17 @@ def test_backend_ast_mutation_killer_suite():
         narrow_recs = lib.recommendations(129.0, "8A", None, 1.5, False)
         assert [r["id"] for r in narrow_recs] == ["1", "2"]
 
+        # _apply_rule: numeric and key range exact boundary inclusion (raw >= lo and raw <= hi)
+        res_bpm_130 = lib.query({"rules": [{"id": "bpm", "op": "range", "value": "130..130"}]})
+        assert [r["id"] for r in res_bpm_130["rows"]] == ["1"]
+        res_bpm_128 = lib.query({"rules": [{"id": "bpm", "op": "range", "value": "128..128"}]})
+        assert [r["id"] for r in res_bpm_128["rows"]] == ["2"]
+        res_key_8a = lib.query({"rules": [{"id": "key", "op": "range", "value": "8A..8A"}]})
+        assert {r["id"] for r in res_key_8a["rows"]} == {"1", "3"}
+
         # _apply_rule: contains on key column
-        assert [r["id"] for r in lib.query({"rules": [{"id": "key", "op": "contains", "value": "8a"}]})["rows"]] == ["1", "3"]
+        res_key_cnt = lib.query({"rules": [{"id": "key", "op": "contains", "value": "8a"}]})
+        assert [r["id"] for r in res_key_cnt["rows"]] == ["1", "3"]
         assert lib.query({"rules": [{"id": "key", "op": "contains", "value": "nonexistent"}]})["rows"] == []
 
         # _apply_rule: key range with one invalid part
@@ -1031,34 +1053,55 @@ def test_backend_ast_mutation_killer_suite():
         assert lib.query({"rules": [{"id": "key", "op": "range", "value": "INVALID..8A"}]})["rows"] == []
 
         # _apply_rule: key comparisons & asc < 26 boundary (null key track 4 must be excluded)
-        assert {r["id"] for r in lib.query({"rules": [{"id": "key", "op": "gte", "value": "8A"}]})["rows"]} == {"1", "2", "3"}
+        res_key_gte = lib.query({"rules": [{"id": "key", "op": "gte", "value": "8A"}]})
+        assert {r["id"] for r in res_key_gte["rows"]} == {"1", "2", "3"}
         assert lib.query({"rules": [{"id": "key", "op": "gt", "value": "12B"}]})["rows"] == []
         assert lib.query({"rules": [{"id": "key", "op": "gte", "value": "12B"}]})["rows"] == []
 
         # _apply_rule: title string boundary operations (gte, gt, lte, lt)
-        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "gte", "value": "Beta"}]})["rows"]} == {"2", "3"}
+        res_title_gte = lib.query({"rules": [{"id": "title", "op": "gte", "value": "Beta"}]})
+        assert {r["id"] for r in res_title_gte["rows"]} == {"2", "3"}
         assert [r["id"] for r in lib.query({"rules": [{"id": "title", "op": "gt", "value": "Beta"}]})["rows"]] == ["3"]
-        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "lte", "value": "Beta"}]})["rows"]} == {"1", "2"}
+        res_title_lte = lib.query({"rules": [{"id": "title", "op": "lte", "value": "Beta"}]})
+        assert {r["id"] for r in res_title_lte["rows"]} == {"1", "2"}
         assert [r["id"] for r in lib.query({"rules": [{"id": "title", "op": "lt", "value": "Beta"}]})["rows"]] == ["1"]
 
         # _apply_rule: id comparisons (gte, gt, lte, lt)
-        assert {r["id"] for r in lib.query({"rules": [{"id": "id", "op": "gte", "value": "2"}]})["rows"]} == {"2", "3", "4"}
+        res_id_gte = lib.query({"rules": [{"id": "id", "op": "gte", "value": "2"}]})
+        assert {r["id"] for r in res_id_gte["rows"]} == {"2", "3", "4"}
         assert {r["id"] for r in lib.query({"rules": [{"id": "id", "op": "gt", "value": "2"}]})["rows"]} == {"3", "4"}
         assert {r["id"] for r in lib.query({"rules": [{"id": "id", "op": "lte", "value": "2"}]})["rows"]} == {"1", "2"}
         assert [r["id"] for r in lib.query({"rules": [{"id": "id", "op": "lt", "value": "2"}]})["rows"]] == ["1"]
 
         # _apply_rule: text range reverse and equal
-        assert {r["id"] for r in lib.query({"rules": [{"id": "title", "op": "range", "value": "Gamma..Alpha"}]})["rows"]} == {"1", "2", "3"}
-        assert [r["id"] for r in lib.query({"rules": [{"id": "title", "op": "range", "value": "Beta..Beta"}]})["rows"]] == ["2"]
+        res_rng_rev = lib.query({"rules": [{"id": "title", "op": "range", "value": "Gamma..Alpha"}]})
+        assert {r["id"] for r in res_rng_rev["rows"]} == {"1", "2", "3"}
+        res_rng_eq = lib.query({"rules": [{"id": "title", "op": "range", "value": "Beta..Beta"}]})
+        assert [r["id"] for r in res_rng_eq["rows"]] == ["2"]
 
         # _sort_positions: single stage id asc / desc
         assert [r["id"] for r in lib.query({"sorts": [{"id": "id", "desc": True}]})["rows"]] == ["4", "3", "2", "1"]
         assert [r["id"] for r in lib.query({"sorts": [{"id": "id", "desc": False}]})["rows"]] == ["1", "2", "3", "4"]
         # single stage non-id
-        assert [r["id"] for r in lib.query({"sorts": [{"id": "bpm", "desc": False}]})["rows"]][:3] == ["2", "1", "3"]
+        s_bpm_asc = lib.query({"sorts": [{"id": "bpm", "desc": False}]})
+        assert [r["id"] for r in s_bpm_asc["rows"]][:3] == ["2", "1", "3"]
         # multi-stage with id in used
-        assert [r["id"] for r in lib.query({"sorts": [{"id": "bpm", "desc": True}, {"id": "id", "desc": False}]})["rows"]][:3] == ["3", "1", "2"]
-        assert [r["id"] for r in lib.query({"sorts": [{"id": "id", "desc": False}, {"id": "bpm", "desc": True}]})["rows"]] == ["1", "2", "3", "4"]
+        s_bpm_desc = lib.query({"sorts": [{"id": "bpm", "desc": True}, {"id": "id", "desc": False}]})
+        assert [r["id"] for r in s_bpm_desc["rows"]][:3] == ["3", "1", "2"]
+        s_id_first = lib.query({"sorts": [{"id": "id", "desc": False}, {"id": "bpm", "desc": True}]})
+        assert [r["id"] for r in s_id_first["rows"]] == ["1", "2", "3", "4"]
+
+        # multi-stage non-id where stage 1 breaks tie in stage 0 (kills len(stages) == 1 Eq -> NotEq)
+        # Tracks 1 & 3 both have key 8A; track 1 has bpm 130, track 3 has bpm 135
+        s_key_bpm_desc = lib.query({"sorts": [{"id": "key", "desc": False}, {"id": "bpm", "desc": True}]})
+        assert [r["id"] for r in s_key_bpm_desc["rows"]][:2] == ["3", "1"]
+        s_key_bpm_asc = lib.query({"sorts": [{"id": "key", "desc": False}, {"id": "bpm", "desc": False}]})
+        assert [r["id"] for r in s_key_bpm_asc["rows"]][:2] == ["1", "3"]
+
+        # _sort_positions: np.lexsort with input permutation (kills In -> NotIn on line 410)
+        arr_idx = np.array([2, 0, 1])
+        sorted_pos = lib._sort_positions(arr_idx, {"sorts": [{"id": "comment"}, {"id": "album"}]})
+        assert list(sorted_pos) == [0, 1, 2]
     finally:
         lib.close()
 
@@ -1089,6 +1132,7 @@ def test_backend_ast_mutation_killer_suite():
     assert rb_live._progress(last, "Diff", "Artist B", 10.5, 1.5) is False
     assert rb_live._progress(last, "Track A", "Diff", 10.5, 1.5) is False
     assert rb_live._progress(last, "Track A", "Artist B", 10.5, 1.5) is True
+    assert rb_live._progress(last, "Track A", "Artist B", 10.8, 1.2) is True
     assert rb_live._progress(last, "Track A", "Artist B", 10.02, 1.5) is False
     assert rb_live._progress(last, "Track A", "Artist B", 15.0, 1.5) is False
     assert rb_live._progress(last, "Track A", "Artist B", 10.5, 0.5) is False
@@ -1107,6 +1151,12 @@ def test_backend_ast_mutation_killer_suite():
     audible = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.8, "master": False}
     assert core._select_anchor([inaudible, audible], "rekordbox", None)["deck"] == 2
 
+    # _select_anchor: fader == 0.05 stripped in rekordbox mode (kills Gt -> GtE on line 117)
+    core._last_anchor = 1
+    d_fader_05 = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.05, "master": False}
+    d_other_08 = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.08, "master": False}
+    assert core._select_anchor([d_fader_05, d_other_08], "rekordbox", None)["deck"] == 2
+
     # Sticky anchor: challenger fader beat (diff >= 0.10)
     core._last_anchor = 1
     deck_prev = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.80, "master": False}
@@ -1122,4 +1172,47 @@ def test_backend_ast_mutation_killer_suite():
     core._last_anchor = 1
     deck_master = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.82, "master": True}
     assert core._select_anchor([deck_prev, deck_master], "rekordbox", None)["deck"] == 2
+
+    # State != rekordbox with faders vs state == rekordbox (inaudible deck sticky behavior)
+    core._last_anchor = 1
+    d1_inaudible = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.02, "master": False}
+    d2_low = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.08, "master": False}
+    # In pro-dj-link: inaudible deck 1 is NOT stripped, so sticky anchor holds (diff 0.06 < 0.10) -> returns 1
+    assert core._select_anchor([d1_inaudible, d2_low], "pro-dj-link", None)["deck"] == 1
+    # In rekordbox: inaudible deck 1 IS stripped (< 0.05), so deck 2 is selected -> returns 2
+    assert core._select_anchor([d1_inaudible, d2_low], "rekordbox", None)["deck"] == 2
+
+    # Sticky anchor: prev is None with multiple available decks (prev is not None and len > 1)
+    core._last_anchor = None
+    assert core._select_anchor([d1, d2], "rekordbox", None)["deck"] == 2
+
+    # Sticky anchor: exact boundary fader beat diff == 0.10 (0.20 - 0.10 == 0.10 -> hands over to challenger)
+    core._last_anchor = 1
+    d_prev_exact = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.10, "master": False}
+    d_exact_fader = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.20, "master": False}
+    assert core._select_anchor([d_prev_exact, d_exact_fader], "rekordbox", None)["deck"] == 2
+
+    # Sticky anchor: diff == 0.05 with master does NOT beat prev (0.11 - 0.06 == 0.05, not < 0.05 -> stays with prev)
+    core._last_anchor = 1
+    d_prev_m = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.06, "master": False}
+    d_exact_master = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.11, "master": True}
+    assert core._select_anchor([d_prev_m, d_exact_master], "rekordbox", None)["deck"] == 1
+
+    # Sticky anchor: diff < 0.05 with master DOES beat prev (0.83 - 0.80 = 0.03 < 0.05 -> hands over to challenger)
+    core._last_anchor = 1
+    d_master_low_diff = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.83, "master": True}
+    assert core._select_anchor([deck_prev, d_master_low_diff], "rekordbox", None)["deck"] == 2
+
+    # _select_anchor: fallback min tiebreakers when prev is None (kills remove unary not on lines 149 & 150)
+    core._last_anchor = None
+    # not playing tiebreaker: playing deck 2 must be chosen over paused deck 1 at equal faders
+    d_p_off = {"deck": 1, "trackId": "t1", "playing": False, "fader": 1.0, "master": False}
+    d_p_on = {"deck": 2, "trackId": "t2", "playing": True, "fader": 1.0, "master": False}
+    assert core._select_anchor([d_p_off, d_p_on], "pro-dj-link", None)["deck"] == 2
+
+    # not master tiebreaker: master deck 2 must be chosen over non-master deck 1 at equal faders
+    d_m_off = {"deck": 1, "trackId": "t1", "playing": True, "fader": 1.0, "master": False}
+    d_m_on = {"deck": 2, "trackId": "t2", "playing": True, "fader": 1.0, "master": True}
+    assert core._select_anchor([d_m_off, d_m_on], "pro-dj-link", None)["deck"] == 2
+
 
