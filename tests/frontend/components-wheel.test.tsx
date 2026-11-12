@@ -241,6 +241,7 @@ describe('camelot-wheel.tsx', () => {
     // Quick chips: title & active/current classes + click
     const chip8A = container.querySelector('.keychip[data-key="8A"]')!
     expect(chip8A).toHaveClass('active', 'current')
+    expect(chip8A.className).toBe('keychip active current')
     expect(chip8A).toHaveAttribute(
       'title',
       '8A (aktuelle Tonart) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
@@ -248,6 +249,7 @@ describe('camelot-wheel.tsx', () => {
     const chip7A = container.querySelector('.keychip[data-key="7A"]')!
     expect(chip7A).not.toHaveClass('active')
     expect(chip7A).not.toHaveClass('current')
+    expect(chip7A.className).toBe('keychip  ')
     expect(chip7A).toHaveAttribute(
       'title',
       '7A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
@@ -255,6 +257,7 @@ describe('camelot-wheel.tsx', () => {
     const chip9A = container.querySelector('.keychip[data-key="9A"]')!
     expect(chip9A).toHaveClass('active')
     expect(chip9A).not.toHaveClass('current')
+    expect(chip9A.className).toBe('keychip active ')
     expect(chip9A).toHaveAttribute(
       'title',
       '9A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
