@@ -439,7 +439,11 @@ def _focus_window(hwnd):
         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
     current_tid = kernel32.GetCurrentThreadId()
     target_tid = user32.GetWindowThreadProcessId(hwnd, None)
-    attached = bool(target_tid and target_tid != current_tid and user32.AttachThreadInput(current_tid, target_tid, True))
+    attached = bool(
+        target_tid
+        and target_tid != current_tid
+        and user32.AttachThreadInput(current_tid, target_tid, True)
+    )
     try:
         user32.BringWindowToTop(hwnd)
         user32.SetForegroundWindow(hwnd)

@@ -689,6 +689,14 @@ select {
   line-height: 1.55;
 }
 
+.infotip {
+  color: #7eaad5;
+  font-size: 11px;
+  cursor: help;
+  opacity: 0.9;
+  margin-left: 4px;
+}
+
 .navhint {
   background: #1c3042;
   border: 1px solid #365474;
@@ -840,12 +848,14 @@ select {
 
 .trackinspect .btnrow {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 10px;
 }
 
 .trackinspect .btnrow button {
-  flex: 1;
+  flex: 1 1 44%;
+  white-space: nowrap;
 }
 
 /* Center result table (virtualized grid) */
@@ -1372,9 +1382,14 @@ select {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   padding: 13px;
   gap: 10px;
   border-bottom: 1px solid #353e49;
+}
+
+.settoolbar .flex {
+  flex-wrap: wrap;
 }
 
 .settoolbar h2 {
@@ -1572,6 +1587,7 @@ select {
 .modal .actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 16px;
 }

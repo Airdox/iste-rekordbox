@@ -99,6 +99,7 @@ type LiveViewProps = {
   onAddToSet: (track: Track) => void
   onPinAsReference: (track: Track) => void
   onFindRekordbox: (track: Track) => void
+  onRekordboxAction?: (track: Track, action: 'reveal' | 'deck1' | 'deck2') => void
   setIds: Set<string>
   setCount: number
   onGoFilterStudio: () => void

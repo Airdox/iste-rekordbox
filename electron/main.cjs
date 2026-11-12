@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, Menu, shell } = require('electron')
 const { spawn } = require('node:child_process')
 const { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } = require('node:fs')
 const { join } = require('node:path')
@@ -6,7 +6,7 @@ const { createInterface } = require('node:readline')
 
 const methods = new Set([
   'open', 'demoLibrary', 'query', 'detail', 'interfaces', 'usb', 'linkStart', 'linkStop',
-  'demoLink', 'live', 'bindMedia', 'unbindMedia',
+  'demoLink', 'live', 'bindMedia', 'unbindMedia', 'rekordboxTransport',
 ])
 let worker
 let workerError
@@ -132,6 +132,12 @@ ipcMain.handle('cuepoint:window', (event, action) => {
   if (action === 'minimize') window.minimize()
   if (action === 'maximize') window.isMaximized() ? window.unmaximize() : window.maximize()
   if (action === 'close') window.close()
+})
+
+ipcMain.handle('cuepoint:revealFile', async (event, filePath) => {
+  if (!trusted(event) || typeof filePath !== 'string' || filePath.length === 0 || !existsSync(filePath)) return false
+  shell.showItemInFolder(filePath)
+  return true
 })
 
 function createWindow() {

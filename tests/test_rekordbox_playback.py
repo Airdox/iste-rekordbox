@@ -88,6 +88,22 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     assert sent_keys[-1] == ("shift", "left")
 
     sent_keys.clear()
+    res_reveal = rbl.send_track_to_rekordbox(
+        "reveal",
+        "Track Reveal",
+        file_path=r"E:\Music\reveal.mp3",
+        window_fn=lambda: 999,
+        clipboard_fn=lambda text: True,
+        focus_fn=lambda hwnd: True,
+        key_sender=lambda *keys: sent_keys.append(keys) or True,
+        sleep_fn=lambda _: None,
+    )
+    assert res_reveal["ok"] is True
+    assert res_reveal["reason"] == "sent"
+    assert res_reveal["deck"] is None
+    assert sent_keys[-1] == ("down",)
+
+    sent_keys.clear()
     res_d2 = rbl.send_track_to_rekordbox(
         "deck2",
         "Track B",
@@ -101,56 +117,80 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     assert sent_keys[-1] == ("shift", "right")
 
     # Exercise Win32 helpers with a lightweight mock WinDLL (all safe in-memory)
+    # Assign plain functions on self so ctypes attribute assignment (.restype / .argtypes) works.
     class FakeWinDLL:
         def __init__(self, dll, use_last_error=False):
             self.dll = dll
             self.open_ok = True
             self.iconic = True
+            self.alloc_handle = 1001
+            self.target_tid = 22
+            self._buf_ptr = 0
+            self.show_calls = []
+            self.attach_calls = []
 
-        def IsIconic(self, hwnd):
-            return self.iconic
+            def is_iconic(hwnd):
+                return self.iconic
 
-        def ShowWindow(self, hwnd, cmd):
-            return True
+            def show_window(hwnd, cmd):
+                self.show_calls.append((hwnd, cmd))
+                return True
 
-        def GetCurrentThreadId(self):
-            return 11
+            def get_current_thread_id():
+                return 11
 
-        def GetWindowThreadProcessId(self, hwnd, ptr):
-            return 22
+            def get_window_thread_process_id(hwnd, ptr):
+                return self.target_tid
 
-        def AttachThreadInput(self, a, b, attach):
-            return True
+            def attach_thread_input(a, b, attach):
+                self.attach_calls.append((a, b, attach))
+                return True
 
-        def BringWindowToTop(self, hwnd):
-            return True
+            def bring_window_to_top(hwnd):
+                return True
 
-        def SetForegroundWindow(self, hwnd):
-            return True
+            def set_foreground_window(hwnd):
+                return True
 
-        def GlobalAlloc(self, flags, size):
-            return 1001
+            def global_alloc(flags, size):
+                return self.alloc_handle
 
-        def GlobalLock(self, hmem):
-            return self._buf_ptr if hasattr(self, "_buf_ptr") else 0
+            def global_lock(hmem):
+                return self._buf_ptr
 
-        def GlobalUnlock(self, hmem):
-            return True
+            def global_unlock(hmem):
+                return True
 
-        def OpenClipboard(self, hwnd):
-            return self.open_ok
+            def open_clipboard(hwnd):
+                return self.open_ok
 
-        def EmptyClipboard(self):
-            return True
+            def empty_clipboard():
+                return True
 
-        def SetClipboardData(self, fmt, hmem):
-            return hmem
+            def set_clipboard_data(fmt, hmem):
+                return hmem
 
-        def CloseClipboard(self):
-            return True
+            def close_clipboard():
+                return True
 
-        def SendInput(self, count, arr, size):
-            return count
+            def send_input(count, arr, size):
+                return count
+
+            self.IsIconic = is_iconic
+            self.ShowWindow = show_window
+            self.GetCurrentThreadId = get_current_thread_id
+            self.GetWindowThreadProcessId = get_window_thread_process_id
+            self.AttachThreadInput = attach_thread_input
+            self.BringWindowToTop = bring_window_to_top
+            self.SetForegroundWindow = set_foreground_window
+            self.GlobalAlloc = global_alloc
+            self.GlobalLock = global_lock
+            self.GlobalUnlock = global_unlock
+            self.OpenClipboard = open_clipboard
+            self.EmptyClipboard = empty_clipboard
+            self.SetClipboardData = set_clipboard_data
+            self.CloseClipboard = close_clipboard
+            self.SendInput = send_input
 
     import ctypes
 
@@ -160,10 +200,23 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     monkeypatch.setattr(rbl.ctypes, "WinDLL", lambda name, use_last_error=False: dll_mock)
     monkeypatch.setattr(rbl.os, "name", "nt")
     assert rbl._focus_window(555) is True
+    assert dll_mock.show_calls == [(555, 9)]
+    assert dll_mock.attach_calls == [(11, 22, True), (11, 22, False)]
+    dll_mock.iconic = False
+    dll_mock.target_tid = 11
+    dll_mock.show_calls.clear()
+    dll_mock.attach_calls.clear()
+    assert rbl._focus_window(555) is True
+    assert dll_mock.show_calls == []
+    assert dll_mock.attach_calls == []
     assert rbl._focus_window(0) is False
     assert rbl._send_combo("shift", "left") is True
+    assert rbl._send_combo("ctrl", "f") is True
     assert rbl._send_combo() is False
     assert rbl._set_clipboard_text("Test") is True
+    dll_mock.alloc_handle = 0
+    assert rbl._set_clipboard_text("Test") is False
+    dll_mock.alloc_handle = 1001
     dll_mock._buf_ptr = 0
     assert rbl._set_clipboard_text("Test") is False
     dll_mock.open_ok = False
@@ -176,7 +229,11 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     # Core.handle("rekordboxTransport")
     import main as app_main
 
-    monkeypatch.setattr(app_main, "send_track_to_rekordbox", lambda a, q, p="": {"ok": True, "action": a, "query": q, "path": p})
+    monkeypatch.setattr(
+        app_main,
+        "send_track_to_rekordbox",
+        lambda a, q, p="": {"ok": True, "action": a, "query": q, "path": p},
+    )
     core = Core()
     core.replace_library(Library(None, "Master", [
         {"id": "t1", "title": "Pulse", "artist": "Unit", "path": "C:/music/pulse.wav"},
@@ -184,5 +241,7 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     try:
         res = core.handle("rekordboxTransport", {"id": "t1", "action": "deck1"})
         assert res == {"ok": True, "action": "deck1", "query": "Pulse Unit", "path": "C:/music/pulse.wav"}
+        res_direct = core.handle("rekordboxTransport", {"query": "Manual Search", "path": "D:/music/x.aiff"})
+        assert res_direct == {"ok": True, "action": "reveal", "query": "Manual Search", "path": "D:/music/x.aiff"}
     finally:
         core.library.close()

@@ -103,6 +103,13 @@ function createElectronHarness({
     handle: (channel, fn) => handles.set(channel, fn),
   }
 
+  const revealedPaths = []
+  const shell = {
+    showItemInFolder: (target) => {
+      revealedPaths.push(target)
+    },
+  }
+
   const BrowserWindow = function BrowserWindow(opts) {
     BrowserWindow.lastOptions = opts
     return fakeWindow
@@ -115,6 +122,7 @@ function createElectronHarness({
     ipcMain,
     Menu: { setApplicationMenu: () => {} },
     session: fakeSession,
+    shell,
   }
 
   const exposed = {}
@@ -212,6 +220,7 @@ function createElectronHarness({
     BrowserWindow,
     children,
     savedFiles,
+    revealedPaths,
     exposed,
     trustedEvent,
     getWindowOpenHandler: () => windowOpenHandler,
@@ -238,6 +247,10 @@ test('preload exposes strict IPC wrapper API', () => {
   assert.deepEqual(harness.exposed.cuepoint.window('minimize'), {
     channel: 'cuepoint:window',
     args: ['minimize'],
+  })
+  assert.deepEqual(harness.exposed.cuepoint.revealFile('E:\\Music\\track.mp3'), {
+    channel: 'cuepoint:revealFile',
+    args: ['E:\\Music\\track.mp3'],
   })
 })
 
@@ -285,6 +298,17 @@ test('main.cjs security settings, navigation/permission blocks, window controls 
   const chosen = await harness.handles.get('cuepoint:choose')(harness.trustedEvent, true)
   assert.equal(chosen, 'D:\\Rekordbox\\master.db')
 
+  // Reveal file in Explorer (cuepoint:revealFile)
+  const revealHandler = harness.handles.get('cuepoint:revealFile')
+  const existingTrack = path.resolve('E:\\iste rekordbox\\package.json')
+  const missingTrack = path.resolve('E:\\iste rekordbox\\__does_not_exist__.mp3')
+  assert.equal(await revealHandler({ sender: harness.fakeWindow.webContents, senderFrame: { id: 'evil' } }, existingTrack), false)
+  assert.equal(await revealHandler(harness.trustedEvent, null), false)
+  assert.equal(await revealHandler(harness.trustedEvent, ''), false)
+  assert.equal(await revealHandler(harness.trustedEvent, missingTrack), false)
+  assert.equal(await revealHandler(harness.trustedEvent, existingTrack), true)
+  assert.deepEqual(harness.revealedPaths, [existingTrack])
+
   harness.fakeWindowOn.get('closed')?.()
   harness.appEvents.get('window-all-closed')?.()
 })
@@ -328,6 +352,14 @@ test('main.cjs request routing, worker RPC responses, errors, stderr and exit re
   const queryPayload = JSON.parse(child.stdin.writes[2].trim())
   child.stdout.write(JSON.stringify({ id: queryPayload.id, error: 'DB Fehler' }) + '\n')
   await assert.rejects(() => queryPromise, /DB Fehler/)
+
+  // Allow rekordboxTransport over cuepoint:request
+  const transportPromise = reqHandler(harness.trustedEvent, 'rekordboxTransport', { id: 't1', action: 'deck1' })
+  const transportPayload = JSON.parse(child.stdin.writes[3].trim())
+  assert.equal(transportPayload.method, 'rekordboxTransport')
+  assert.deepEqual(transportPayload.params, { id: 't1', action: 'deck1' })
+  child.stdout.write(JSON.stringify({ id: transportPayload.id, result: { ok: true, deck: 1 } }) + '\n')
+  assert.deepEqual(await transportPromise, { ok: true, deck: 1 })
 
   // Pending promise rejects when child exits cleanly/crashes
   const tailPromise = reqHandler(harness.trustedEvent, 'interfaces', {})

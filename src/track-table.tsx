@@ -101,6 +101,7 @@ export function TrackTable({
   onPinReference,
   onAddToSet,
   onFindRekordbox,
+  onRekordboxAction,
   setIds,
   emptyTitle,
   emptyActionLabel,
@@ -119,6 +120,7 @@ export function TrackTable({
   onPinReference: (track: Track) => void
   onAddToSet: (track: Track) => void
   onFindRekordbox: (track: Track) => void
+  onRekordboxAction?: (track: Track, action: 'reveal' | 'deck1' | 'deck2') => void
   setIds: Set<string>
   emptyTitle: string
   emptyActionLabel?: string
@@ -283,22 +285,35 @@ export function TrackTable({
         <div className="context-backdrop" onPointerDown={() => setMenu(null)}>
           <div className="context-menu" style={{
             left: Math.max(10, Math.min(menu.x, window.innerWidth - 236)),
-            top: Math.max(10, Math.min(menu.y, window.innerHeight - (menu.track ? 140 : 450))),
+            top: Math.max(10, Math.min(menu.y, window.innerHeight - (menu.track ? 240 : 450))),
           }} onPointerDown={(event) => event.stopPropagation()}>
             {menu.track ? (
               <>
-                <button type="button" className="context-action" onClick={() => {
-                  if (menu.track) onPinReference(menu.track)
+                <button type="button" className="context-action" title="Setzt diesen Track als neue harmonische Referenz" onClick={() => {
+                  onPinReference(menu.track!)
                   setMenu(null)
                 }}>⌖ Als Referenz setzen</button>
-                <button type="button" className="context-action" onClick={() => {
-                  if (menu.track) onAddToSet(menu.track)
+                <button type="button" className="context-action" title="Markiert und sucht den Titel direkt in der offenen Rekordbox-App" onClick={() => {
+                  if (onRekordboxAction) onRekordboxAction(menu.track!, 'reveal')
+                  else onFindRekordbox(menu.track!)
+                  setMenu(null)
+                }}>↗ In Rekordbox anzeigen</button>
+                <button type="button" className="context-action" title="Sucht den Titel in Rekordbox und lädt ihn in Deck A (Deck 1)" onClick={() => {
+                  onRekordboxAction?.(menu.track!, 'deck1')
+                  setMenu(null)
+                }}>▶ In Deck A laden</button>
+                <button type="button" className="context-action" title="Sucht den Titel in Rekordbox und lädt ihn in Deck B (Deck 2)" onClick={() => {
+                  onRekordboxAction?.(menu.track!, 'deck2')
+                  setMenu(null)
+                }}>▶ In Deck B laden</button>
+                <button type="button" className="context-action" title="Fügt den Track zur lokalen Setliste hinzu" onClick={() => {
+                  onAddToSet(menu.track!)
                   setMenu(null)
                 }}>+ Zum Set hinzufügen</button>
-                <button type="button" className="context-action" onClick={() => {
-                  if (menu.track) onFindRekordbox(menu.track)
+                <button type="button" className="context-action" title="Zeigt Dateipfad, Explorer-Link und kopierbaren Suchtext" onClick={() => {
+                  onFindRekordbox(menu.track!)
                   setMenu(null)
-                }}>↗ In Rekordbox finden</button>
+                }}>Details / Explorer &amp; Kopieren</button>
               </>
             ) : (
               <>
