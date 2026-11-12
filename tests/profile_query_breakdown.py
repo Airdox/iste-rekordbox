@@ -58,3 +58,4 @@ for _ in range(10):
     parsed = json.loads(cur.fetchone()[0])
 t1 = time.perf_counter()
 print(f"json_group_array + json.loads: {(t1 - t0)*100:.2f}ms")
+

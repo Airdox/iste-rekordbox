@@ -54,6 +54,9 @@ def _key_rank(key):
     return int(key[:-1]) * 2 + (key[-1] == "B") if key else None
 
 
+NON_NULL_FIELDS = frozenset({"id", "bytes", "bitrate", "sample_rate", "rating"})
+
+
 def _order(request):
     requested = request.get("sorts")
     if not isinstance(requested, list):
@@ -66,8 +69,12 @@ def _order(request):
         if not isinstance(field, str) or field not in SORTS or field in used:
             continue
         used.add(field)
-        direction = "DESC" if stage.get("desc") is True else "ASC"
-        order.append(f"{SORTS[field]} {direction} NULLS LAST")
+        if stage.get("desc") is True:
+            order.append(f"{SORTS[field]} DESC")
+        elif field in NON_NULL_FIELDS:
+            order.append(f"{SORTS[field]} ASC")
+        else:
+            order.append(f"{SORTS[field]} ASC NULLS LAST")
     if "id" not in used:
         order.append("id ASC")
     return ", ".join(order)
@@ -85,9 +92,13 @@ class Library:
     def __init__(self, path, kind, tracks):
         self.path, self.kind = path, kind
         self.conn = sqlite3.connect(":memory:")
+        self.conn.execute("PRAGMA page_size = 32768")
         text_indexes = ", ".join(f"{field}_sort INTEGER" for field in TEXT_SORTS)
         self.conn.executescript("""
             PRAGMA temp_store = MEMORY;
+            PRAGMA synchronous = OFF;
+            PRAGMA journal_mode = OFF;
+            PRAGMA cache_size = -64000;
             CREATE TABLE tracks (
                 id TEXT PRIMARY KEY, genre TEXT, year INTEGER, seconds INTEGER, bytes INTEGER,
                 bitrate INTEGER, sample_rate INTEGER, plays INTEGER, rating INTEGER, key TEXT,
@@ -115,11 +126,16 @@ class Library:
         ))
         self.conn.executescript("""
             CREATE INDEX track_genre ON tracks(genre);
+            CREATE INDEX track_genre_bpm ON tracks(genre,bpm,id);
             CREATE INDEX track_key_bpm ON tracks(key,bpm);
+            CREATE INDEX track_key_bpm_asc ON tracks(key,bpm,id);
+            CREATE INDEX track_key_bpm_desc ON tracks(key,bpm DESC,id);
             CREATE INDEX track_artist_year_bpm ON tracks(artist_sort,year,bpm DESC,id);
+            CREATE INDEX track_artist_year_asc ON tracks(artist_sort,year,id);
+            CREATE INDEX track_artist_year_desc ON tracks(artist_sort,year DESC,id);
         """)
         for field, expression in SORTS.items():
-            if field in ("id", "original_id", "analysis", "isrc", "key_raw"):
+            if field in ("id", "original_id", "analysis", "key_raw"):
                 continue
             self.conn.execute(f"CREATE INDEX track_{field}_ascending ON tracks({expression},id)")
             self.conn.execute(f"CREATE INDEX track_{field}_descending ON tracks({expression} DESC,id)")
