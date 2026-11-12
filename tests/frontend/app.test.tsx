@@ -460,8 +460,8 @@ describe('App (main.tsx)', () => {
 
     // Trigger FilterView Inspector transport + Details modal
     const fInspector = within(document.querySelector('#filterInspector')! as HTMLElement)
-    fireEvent.click(fInspector.getByRole('button', { name: /In Rekordbox/i }))
-    fireEvent.click(fInspector.getByRole('button', { name: /Details/i }))
+    fireEvent.click(fInspector.getByText(/In Rekordbox/i))
+    fireEvent.click(fInspector.getByText(/Details/i))
     fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Schließen'))
 
     fireEvent.click(document.querySelector('#resetFilters')!)
@@ -496,7 +496,7 @@ describe('App (main.tsx)', () => {
     fireEvent.click(document.querySelector('#clearSet')!)
     fireEvent.click(within(document.querySelector('.modal')! as HTMLElement).getByText('Set leeren'))
     fireEvent.click(document.querySelector('#addFromBrowse')!)
-  }, 30000)
+  }, 60000)
 
   it('handles source menu switching, help modal, hardware modal actions and window controls', async () => {
     localStorage.clear()

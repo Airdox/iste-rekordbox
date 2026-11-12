@@ -6,8 +6,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 function createElectronHarness({
   packaged = false,
@@ -89,7 +91,7 @@ function createElectronHarness({
       return whenReadyPromise
     },
     on: (ev, cb) => appEvents.set(ev, cb),
-    getAppPath: () => path.resolve('E:\\iste rekordbox'),
+    getAppPath: () => repoRoot,
     getPath: (name) => path.join(os.tmpdir(), `cuepoint-test-${name}`),
     setPath: () => {},
     quit: () => { appEvents.get('quit-called')?.() },
@@ -300,8 +302,8 @@ test('main.cjs security settings, navigation/permission blocks, window controls 
 
   // Reveal file in Explorer (cuepoint:revealFile)
   const revealHandler = harness.handles.get('cuepoint:revealFile')
-  const existingTrack = path.resolve('E:\\iste rekordbox\\package.json')
-  const missingTrack = path.resolve('E:\\iste rekordbox\\__does_not_exist__.mp3')
+  const existingTrack = path.join(repoRoot, 'package.json')
+  const missingTrack = path.join(repoRoot, '__does_not_exist__.mp3')
   assert.equal(await revealHandler({ sender: harness.fakeWindow.webContents, senderFrame: { id: 'evil' } }, existingTrack), false)
   assert.equal(await revealHandler(harness.trustedEvent, null), false)
   assert.equal(await revealHandler(harness.trustedEvent, ''), false)
@@ -314,7 +316,7 @@ test('main.cjs security settings, navigation/permission blocks, window controls 
 })
 
 test('main.cjs request routing, worker RPC responses, errors, stderr and exit recovery', async () => {
-  const fsExists = new Set([path.resolve('E:\\iste rekordbox\\dist\\index.html')])
+  const fsExists = new Set([path.join(repoRoot, 'dist', 'index.html')])
   const harness = createElectronHarness({
     savedPathContent: 'C:\\Saved\\master.db',
     existsPaths: fsExists,
