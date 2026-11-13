@@ -61,22 +61,27 @@ TESTS_BY_MODULE = {
     "backend/keys.py": (
         AST_CONTRACT,
         f"{COVERAGE_TESTS}::test_keys_all_notations_and_empty_compatible",
+        f"{BOUNDARY_TESTS}::test_open_key_maps_all_numbers_in_both_modes",
     ),
     "backend/library.py": (
         AST_CONTRACT,
         f"{COVERAGE_TESTS}::test_library_all_rule_branches_ranges_sorts_projections_and_waveform",
         f"{BOUNDARY_TESTS}::test_filter_ranges_include_both_edges",
+        f"{BOUNDARY_TESTS}::test_multiple_sort_stages_resolve_ties_in_priority_order",
         f"{PLAYBACK_TESTS}::test_local_playing_deck_drives_matches_with_effective_bpm",
     ),
     "backend/rekordbox_live.py": (
         AST_CONTRACT,
         f"{COVERAGE_TESTS}::test_rekordbox_live_faders_crossfader_master_and_discover",
+        f"{BOUNDARY_TESTS}::test_crossfader_center_and_both_sides",
+        f"{BOUNDARY_TESTS}::test_playback_progress_accepts_forward_step_and_rejects_clock_tearing",
         PLAYBACK_TESTS,
     ),
     "backend/main.py": (
         AST_CONTRACT,
         f"{BOUNDARY_TESTS}::test_anchor_filters_paused_and_empty_rekordbox_decks_before_preference",
         f"{BOUNDARY_TESTS}::test_anchor_applies_inclusive_fader_and_exclusive_master_thresholds",
+        f"{BOUNDARY_TESTS}::test_anchor_prefers_playing_then_master_when_levels_tie",
         PLAYBACK_TESTS,
     ),
 }

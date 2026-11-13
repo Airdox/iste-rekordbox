@@ -150,9 +150,8 @@ def _crossfader_gain(crossfader_pos, deck_index, total_decks):
     pos = max(0.0, min(1.0, float(crossfader_pos)))
     # Odd decks (1, 3, ...) live on side A (left), even decks (2, 4, ...) live on side B (right).
     is_left = (deck_index % 2) == 1
-    if is_left:
-        return max(0.0, min(1.0, (1.0 - pos) * 2.0)) if pos > 0.5 else 1.0
-    return max(0.0, min(1.0, pos * 2.0)) if pos < 0.5 else 1.0
+    side_gain = 1.0 - pos if is_left else pos
+    return min(1.0, side_gain * 2.0)
 
 
 def combine_fader_levels(channel_fader, crossfader_pos, deck_index, total_decks):

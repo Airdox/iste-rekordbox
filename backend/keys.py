@@ -21,7 +21,8 @@ def camelot(value):
         mode = mode.lower()
         if mode in "ab":
             return f"{index}{mode.upper()}"
-        return f"{(int(index) + 6) % 12 + 1}{'A' if mode == 'm' else 'B'}"
+        camelot_index = (int(index) + 7) % 12 or 12
+        return f"{camelot_index}{'A' if mode == 'm' else 'B'}"
     classical = re.fullmatch(r"([A-Ga-g][#b]?)\s*(M|m|maj(?:or)?|min(?:or)?|dur|moll)?", text)
     if not classical:
         classical = re.fullmatch(r"([A-Ga-g][#b]?)\s*(major|minor|maj|min|dur|moll)", text, re.IGNORECASE)
