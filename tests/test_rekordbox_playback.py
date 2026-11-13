@@ -239,6 +239,8 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     assert rbl._send_combo("shift", "left") is True
     assert rbl._send_combo("ctrl", "f") is True
     assert rbl._send_combo() is False
+    assert rbl._type_unicode("Test") is True
+    assert rbl._type_unicode("") is False
     assert rbl._set_clipboard_text("Test") is True
     dll_mock.alloc_handle = 0
     assert rbl._set_clipboard_text("Test") is False
@@ -250,6 +252,7 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     monkeypatch.setattr(rbl.os, "name", "posix")
     assert rbl._focus_window(555) is False
     assert rbl._send_combo("ctrl", "f") is False
+    assert rbl._type_unicode("Test") is False
     assert rbl._set_clipboard_text("Test") is False
 
     # Core.handle("rekordboxTransport")
