@@ -194,7 +194,8 @@ def source_range(root: Path, file: str, selector: str | None) -> tuple[int, int]
 
 
 def collect_python_arcs(root: Path, reports: Path, coverage_data: Path) -> None:
-    from coverage import CoverageData
+    from coverage import Coverage, CoverageData
+    from coverage.python import PythonFileReporter
 
     requirements = read_json(root / "scripts/quality_requirements.json")["branches"]
     sources = {item["file"] for item in requirements if item["stage"] == "python"}
@@ -206,12 +207,13 @@ def collect_python_arcs(root: Path, reports: Path, coverage_data: Path) -> None:
         relative = normalized_path(os.path.relpath(file, root))
         if relative not in sources:
             continue
+        reporter = PythonFileReporter(file, Coverage())
         names_by_arc = {}
         for context in data.measured_contexts():
             if not context.endswith("|run"):
                 continue
             data.set_query_context(context)
-            for origin, destination in data.arcs(file) or ():
+            for origin, destination in reporter.translate_arcs(data.arcs(file) or ()):
                 names_by_arc.setdefault(f"{origin}:{destination}", []).append(context.removesuffix("|run"))
         output[relative] = {arc: sorted(names) for arc, names in names_by_arc.items()}
     write_json(reports / "coverage-python/critical-arcs.json", output)

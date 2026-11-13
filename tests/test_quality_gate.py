@@ -12,6 +12,26 @@ import quality_gate as gate
 RUN = {"commit": "a" * 40, "scope": "test-run"}
 
 
+def test_python_arc_contexts_use_coverage_report_line_numbering(tmp_path):
+    from coverage import CoverageData
+
+    file = tmp_path / "backend/example.py"
+    file.parent.mkdir()
+    file.write_text("def matches():\n    if (\n        True\n    ):\n        return 1\n", encoding="utf-8")
+    gate.write_json(tmp_path / "scripts/quality_requirements.json", {
+        "branches": [{"stage": "python", "file": "backend/example.py"}],
+    })
+    data_file = tmp_path / "coverage-data"
+    data = CoverageData(basename=str(data_file))
+    data.set_context("tests/test_example.py::test_matches|run")
+    data.add_arcs({str(file): [(3, 5)]})
+    data.write()
+    reports = tmp_path / "reports"
+    gate.collect_python_arcs(tmp_path, reports, data_file)
+    arcs = gate.read_json(reports / "coverage-python/critical-arcs.json")
+    assert arcs["backend/example.py"]["2:5"] == ["tests/test_example.py::test_matches"]
+
+
 @pytest.fixture
 def evidence(tmp_path, monkeypatch):
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
