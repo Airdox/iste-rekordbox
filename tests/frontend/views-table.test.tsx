@@ -651,7 +651,7 @@ describe('filter-view.tsx', () => {
     ])
     rerender(cloneElement(filter, { sortStages: [{ id: 'title', desc: true }] }))
     fireEvent.click(within(screen.getByRole('columnheader', { name: 'Titel' })).getByRole('button'))
-    expect(onSortStagesChange).toHaveBeenLastCalledWith([])
+    expect(onSortStagesChange).toHaveBeenLastCalledWith([{ id: 'title', desc: false }])
     rerender(filter)
 
     // Queue pane remove & open SetBuilder + overflow badge

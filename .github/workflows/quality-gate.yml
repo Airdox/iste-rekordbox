@@ -139,11 +139,23 @@ jobs:
       - env:
           CUEPOINT_CAPTURE_DIR: reports/ui-screenshots
         run: python scripts/quality_gate.py run ui -- npm run test:ui
+      - name: Verify playable Cuepoint playlist export with Playwright
+        env:
+          CUEPOINT_TEST_PYTHON: python
+        run: |
+          node tests/rekordbox-reimport.cjs reports/playlist-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive -Path reports/playlist-export/*.png,reports/playlist-export/*.m3u8,reports/playlist-export/fixture.json `
+            -DestinationPath reports/playlist-export-evidence.zip
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
           name: stage-ui
-          path: reports/
+          path: |
+            reports/ui-junit.xml
+            reports/provenance/ui.json
+            reports/ui-screenshots/
+            reports/playlist-export-evidence.zip
           if-no-files-found: error
           overwrite: true
 

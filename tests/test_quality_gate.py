@@ -176,7 +176,8 @@ def test_prose_status_does_not_count_as_rekordbox_acceptance(evidence):
     assert gate.verify(root, reports, RUN)["stages"]["REKORDBOX_E2E_VALIDATED"] == "BLOCKED"
 
 
-def test_release_requires_the_exact_portable_and_desktop_receipt(evidence, monkeypatch):
+@pytest.mark.parametrize("tamper", ["missing screenshot", "text screenshot", "reordered re-export"])
+def test_release_requires_the_exact_portable_and_desktop_receipt(evidence, monkeypatch, tamper):
     root, reports = evidence
     package_path = reports / "windows-package.json"
     package = gate.read_json(package_path)
@@ -188,17 +189,55 @@ def test_release_requires_the_exact_portable_and_desktop_receipt(evidence, monke
     evidence_file = reports / "rekordbox-evidence/session.log"
     evidence_file.parent.mkdir()
     evidence_file.write_text("synthetic receipt fixture", encoding="utf-8")
+    playlist_name = "Cuepoint-QA-1234567890"
+    for name in ("01-cuepoint-set.png", "02-cuepoint-handover.png", "03-rekordbox-import-dialog.png",
+                 "04-rekordbox-imported-playlist.png"):
+        (evidence_file.parent / name).write_bytes(b"\x89PNG\r\n\x1a\n" + name.encode() * 10)
+    receipt = evidence_file.parent / "rekordbox-reimport-result.json"
+    tracks = [r"C:\Fixture\three.wav", r"C:\Fixture\one.wav", r"C:\Fixture\two.wav"]
+    gate.write_json(evidence_file.parent / "fixture.json", {
+        "playlist": playlist_name, "tracks": [{"path": path} for path in tracks],
+    })
+    for name in (playlist_name + ".m3u8", "rekordbox-reexport.m3u8"):
+        (evidence_file.parent / name).write_text("#EXTM3U\n" + "\n".join(tracks), encoding="utf-8")
+    roundtrip = gate.read_roundtrip(evidence_file.parent)
+    gate.write_json(receipt, roundtrip)
+    steps = dict.fromkeys(gate.LIVE_STEPS, {
+        "passed": True, "observation": "observed in the fixture",
+        "files": {evidence_file.name: gate.digest(evidence_file)},
+    })
+    steps["rekordbox-playlist-reimport"] = {
+        "passed": True, "observation": "re-exported from Rekordbox in fixture order",
+        "files": {**roundtrip["files"], receipt.name: gate.digest(receipt)},
+    }
     gate.write_json(reports / "rekordbox-e2e.json", {
         "schemaVersion": 1, "commit": RUN["commit"], "platform": "Windows", "rekordboxVersion": "7.2.16",
         "testTrack": {"title": "fixture", "artist": "fixture", "bpm": 128, "key": "8A", "deck": 1},
         "operator": "operator", "auditor": "reviewer", "portableSha256": package["sha256"],
-        "steps": dict.fromkeys(gate.LIVE_STEPS, {
-            "passed": True, "observation": "observed in the fixture",
-            "files": {evidence_file.name: gate.digest(evidence_file)},
-        }),
+        "steps": steps,
     })
     gate.seal(reports, "rekordbox", RUN)
     assert gate.verify(root, reports, RUN, portable)["stages"]["RELEASE_APPROVED"] == "PASSED"
+    imported_screenshot = evidence_file.parent / "04-rekordbox-imported-playlist.png"
+    reexport = evidence_file.parent / "rekordbox-reexport.m3u8"
+    if tamper == "missing screenshot":
+        imported_screenshot.unlink()
+    else:
+        if tamper == "text screenshot":
+            changed = imported_screenshot
+            changed.write_text("plain text screenshot", encoding="utf-8")
+        else:
+            changed = reexport
+            changed.write_text("#EXTM3U\n" + "\n".join(reversed(tracks)), encoding="utf-8")
+        roundtrip["files"][changed.name] = gate.digest(changed)
+        gate.write_json(receipt, roundtrip)
+        acceptance = gate.read_json(reports / "rekordbox-e2e.json")
+        acceptance["steps"]["rekordbox-playlist-reimport"]["files"].update(
+            {changed.name: gate.digest(changed), receipt.name: gate.digest(receipt)}
+        )
+        gate.write_json(reports / "rekordbox-e2e.json", acceptance)
+        gate.seal(reports, "rekordbox", RUN)
+    assert gate.verify(root, reports, RUN, portable)["stages"]["REKORDBOX_E2E_VALIDATED"] == "BLOCKED"
     portable.write_bytes(b"other candidate")
     assert gate.verify(root, reports, RUN, portable)["stages"]["RELEASE_APPROVED"] == "BLOCKED"
     monkeypatch.setenv("GITHUB_ACTIONS", "true")

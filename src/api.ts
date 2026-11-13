@@ -117,8 +117,8 @@ export const revealFile = (path: string) =>
   window.cuepoint.revealFile?.(path) ?? Promise.resolve(false)
 export const message = (error: unknown) => String(error instanceof Error ? error.message : error)
   .replace(/^Error invoking remote method '[^']+': Error: /, '')
-const germanNumber = new Intl.NumberFormat('de-DE')
-export const count = (value: number) => germanNumber.format(value)
+let germanNumber: Intl.NumberFormat | undefined
+export const count = (value: number) => (germanNumber ??= new Intl.NumberFormat('de-DE')).format(value)
 export const bpmText = (value: number | null) => value?.toFixed(2) ?? '—'
 export const duration = (seconds: number | null) =>
   seconds === null ? '—' : `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`

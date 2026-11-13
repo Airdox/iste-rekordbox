@@ -117,10 +117,6 @@ export function FilterView({
   const tableSorting: SortingState = sortStages.map((st) => ({ id: st.id, desc: st.desc }))
 
   const handleHeaderSort = (next: SortingState) => {
-    if (!next.length) {
-      onSortStagesChange([])
-      return
-    }
     onSortStagesChange(
       next.map((item) => ({
         id: item.id as MetadataId,

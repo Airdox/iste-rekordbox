@@ -68,7 +68,10 @@ async function run() {
       await page.screenshot({ path: path.join(process.env.CUEPOINT_CAPTURE_DIR, 'portable-boot.png') })
     }
     const session = await browser.newBrowserCDPSession()
-    await session.send('Browser.close')
+    await session.send('Browser.close').catch((error) => {
+      // Electron may close its CDP connection before acknowledging Browser.close.
+      if (!/Target page, context or browser has been closed/.test(error.message)) throw error
+    })
     assert.equal(await Promise.race([exited, delay(15_000, 'timeout', { ref: false })]), 0)
     console.log(`Portable wrapper launched and loaded the 15,500-track fixture: ${path.basename(portable)}`)
   } finally {

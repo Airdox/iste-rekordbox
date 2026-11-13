@@ -15,6 +15,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
+from rekordbox_reimport import read_roundtrip
+
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / "reports"
 GLOBAL_MIN = 90
@@ -25,7 +27,7 @@ JS_MEASURES = ("lines", "statements", "functions", "branches")
 LIVE_STEPS = {
     "open-rekordbox", "play-defined-track", "start-cuepoint", "match-track", "verify-bpm-key-deck",
     "choose-harmonic-keys", "compare-results-to-oracle", "filter-and-sort", "add-to-set",
-    "handover-to-rekordbox", "archive-evidence", "originals-unchanged",
+    "handover-to-rekordbox", "rekordbox-playlist-reimport", "archive-evidence", "originals-unchanged",
 }
 ARTIFACTS = {
     "static": ("static-junit.xml",),
@@ -366,7 +368,17 @@ def rekordbox_evidence(reports: Path, run: dict) -> dict:
             file = (reports / "rekordbox-evidence" / name).resolve()
             require(file.is_relative_to((reports / "rekordbox-evidence").resolve()) and file.stat().st_size > 0
                     and digest(file) == checksum, f"desktop evidence invalid: {name}")
+    verify_reimport_receipt(reports / "rekordbox-evidence", data["steps"]["rekordbox-playlist-reimport"])
     return data
+
+
+def verify_reimport_receipt(evidence: Path, step: dict) -> None:
+    receipt_name = "rekordbox-reimport-result.json"
+    require(receipt_name in step["files"], "Rekordbox playlist re-import receipt missing")
+    receipt = read_json(evidence / receipt_name)
+    require(receipt == read_roundtrip(evidence), "re-import receipt differs from archived playlist files")
+    require(all(step["files"].get(name) == checksum for name, checksum in receipt["files"].items()),
+            "re-import artifacts differ from desktop acceptance")
 
 
 def unresolved_survivors(root: Path, checks: dict) -> list[dict]:
@@ -541,6 +553,8 @@ def main() -> int:
             exit_code = subprocess.run(command, cwd=ROOT, check=False).returncode
         if args.action in {"record", "run"}:
             record_junit(reports / ARTIFACTS[args.stage][0], args.stage, exit_code)
+            if exit_code and not all((reports / rel).is_file() for rel in ARTIFACTS[args.stage]):
+                return exit_code
         seal(reports, args.stage, run)
         return exit_code
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:

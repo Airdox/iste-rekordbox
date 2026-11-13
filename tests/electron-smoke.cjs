@@ -3,6 +3,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { _electron } = require('@playwright/test')
+const { downloadPlaylist, playlistEntries } = require('./playlist-download.cjs')
 
 async function capture(page, captureDir, filename) {
   if (!captureDir) return
@@ -188,6 +189,7 @@ async function run() {
   else env.CUEPOINT_LIBRARY_PATH = fixture
 
   const app = await _electron.launch({
+    acceptDownloads: true,
     executablePath: process.env.CUEPOINT_TEST_EXE,
     args: process.env.CUEPOINT_TEST_EXE ? [] : ['.'],
     env,
@@ -634,12 +636,23 @@ async function run() {
       await page.locator('.modal button', { hasText: exportBtnLabel }).waitFor({ state: 'visible' })
     }
     await capture(page, captureDir, '06-set-handover.png')
-    await page.locator('.modal button', { hasText: 'M3U8-Playlist exportieren' }).click()
+    const expectedPaths = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('airdox.setTracks')).map((track) => track.path),
+    )
+    assert.equal(expectedPaths.length, 2)
+    const exportDirectory = captureDir || profile
+    const m3u8 = await downloadPlaylist(page, exportDirectory, 'm3u8')
+    assert.deepEqual(playlistEntries(m3u8), expectedPaths, 'M3U8 must contain the set paths in playback order')
     await page.locator('#toast').waitFor({ state: 'visible' })
+    await capture(page, captureDir, '07-m3u8-export.png')
 
     await page.locator('#explainImport').click()
     await page.locator('.modal h2', { hasText: 'Übergabe an Rekordbox' }).waitFor()
-    await page.locator('.modal button', { hasText: 'Rekordbox XML exportieren' }).click()
+    const xml = fs.readFileSync(await downloadPlaylist(page, exportDirectory, 'xml'), 'utf8')
+    assert.match(xml, /<NODE Name="airdox Set" Type="1" KeyType="0" Entries="2">\s*<TRACK Key="1"\/>\s*<TRACK Key="2"\/>/)
+    for (const expectedPath of expectedPaths) {
+      assert.ok(xml.includes(encodeURI(expectedPath.replaceAll('\\', '/'))), `XML path missing: ${expectedPath}`)
+    }
     await page.locator('#toast').waitFor({ state: 'visible' })
 
     await page.locator('#explainImport').click()

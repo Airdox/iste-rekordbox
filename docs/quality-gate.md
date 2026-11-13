@@ -36,3 +36,21 @@ python scripts/quality_gate.py verify --require RELEASE_APPROVED --portable <Pfa
 Der GitHub-gehostete Lauf liefert einen Windows-Kandidaten mit Paket-SHA und einem Smoke-Test des gepackten Electron-Programms sowie einem Boot-Test des portablen Wrappers. Die Produktionsfreigabe prüft zusätzlich den SHA-256 der tatsächlich vorgelegten EXE gegen den Build und die Rekordbox-Abnahme. Die vier Stufen stehen in `reports/quality-gate-report.json`.
 
 Der separate lokale Datenbanktest lässt sich mit `CUEPOINT_VERIFY_REAL=1` und `pytest tests/test_readonly.py::test_production_snapshot_leaves_master_and_sidecars_byte_identical` ausführen. Er prüft den lesenden Zugriff anhand der Hashes und Metadaten der Datenbank und ihrer Sidecars.
+
+### M3U8-Re-Import mit Playwright und nativen Screenshots
+
+Auf dem isolierten Windows-Desktop zunächst Cuepoint bauen oder die gepackte `Cuepoint.exe` angeben. Der Test erstellt drei kurze WAV-Dateien mit Leerzeichen und Umlauten im Pfad. Playwright fügt die Tracks in einer absichtlich unsortierten Reihenfolge zum Set hinzu, speichert die Cuepoint-Screenshots und prüft die tatsächliche heruntergeladene M3U8.
+
+```powershell
+node tests/rekordbox-reimport.cjs reports/rekordbox-evidence
+```
+
+Das Zielverzeichnis muss neu sein. Danach in Rekordbox **Datei → Importieren → Playlist importieren** wählen und die exportierte Datei `Cuepoint-QA-*.m3u8` öffnen. Den nativen Dateidialog mit ausgewählter Datei als `03-rekordbox-import-dialog.png` sichern. Die neue Playlist in Rekordbox auswählen und die Titel in aufsteigender Playlist-Positionsnummer anzeigen. Den Playlistnamen und alle drei Zeilen zusammen als `04-rekordbox-imported-playlist.png` sichern. Die Reihenfolge in Rekordbox darf für diese Prüfung nicht umnummeriert werden.
+
+Die importierte Playlist über ihr Kontextmenü als M3U8 in dasselbe Verzeichnis unter `rekordbox-reexport.m3u8` exportieren. Der Prüfer vergleicht beide Playlistdateien mit der vor dem Import erstellten Referenz, einschließlich Reihenfolge, Duplikaten und Änderungen an den Audiodateien. Der Auditor prüft zusätzlich die nativen Screenshots und bestätigt, dass der Rückexport aus der neu importierten Playlist stammt.
+
+```powershell
+python scripts/rekordbox_reimport.py verify reports/rekordbox-evidence
+```
+
+Den erzeugten `rekordbox-reimport-result.json` sowie alle darin referenzierten Dateien unter `rekordbox-playlist-reimport` in der Desktop-Abnahme mit ihren SHA-256-Werten erfassen. Diese M3U8-Abnahme verlangt eine interaktive Rekordbox-Session. XML ist ein eigener Importpfad über **rekordbox xml** im Media Browser. [Rekordbox-Handbuch, S. 40 und 45](https://cdn.rekordbox.com/files/20260409151936/rekordbox7.214_manual_EN.pdf)
