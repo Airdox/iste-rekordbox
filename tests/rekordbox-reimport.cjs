@@ -6,6 +6,7 @@ const { _electron } = require('@playwright/test')
 const { downloadPlaylist, playlistEntries } = require('./playlist-download.cjs')
 
 async function prepare(directory, executable) {
+  fs.mkdirSync(path.dirname(directory), { recursive: true })
   fs.mkdirSync(directory, { recursive: false })
   const python = process.env.CUEPOINT_TEST_PYTHON || path.resolve('.venv', 'Scripts', 'python.exe')
   execFileSync(python, ['scripts/rekordbox_reimport.py', 'fixture', directory], { stdio: 'inherit' })
