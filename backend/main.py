@@ -123,13 +123,13 @@ class Core:
             return 1.0 if fader is None else float(fader)
 
         prev = next((deck for deck in available if deck["deck"] == self._last_anchor), None)
-        if prev is not None and len(available) > 1:
+        if prev is not None:
             # Keep current active deck sticky unless a challenger has a clearly higher fader level (+0.10)
             # or becomes the sole master at an equivalent fader level.
             prev_lvl = level(prev)
             challenger = max(
                 available,
-                key=lambda d: (round(level(d), 2), bool(d.get("master")), d["deck"] == self._last_anchor, -d["deck"]),
+                key=lambda d: (round(level(d), 2), bool(d.get("master")), -d["deck"]),
             )
             if challenger["deck"] != prev["deck"]:
                 ch_lvl = level(challenger)
@@ -150,11 +150,9 @@ class Core:
                     not d.get("master"),
                     d["deck"],
                 ),
-                default=None,
             )
 
-        if selected:
-            self._last_anchor = selected["deck"]
+        self._last_anchor = selected["deck"]
         return selected
 
     def handle(self, method, params):

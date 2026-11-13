@@ -423,7 +423,7 @@ export function App() {
       bpmMax: useBpm && bpm != null ? Number((bpm + radius).toFixed(6)) : undefined,
       rules: extraRules,
       sorts: liveSortToCascade(liveSort),
-      fields: visibleColumns,
+      fields: [...new Set([...visibleColumns, 'path'])],
       facets: false,
     })
   }, [
@@ -479,7 +479,7 @@ export function App() {
           rules: g.rules.map(({ id, op, value }) => ({ id, op, value })),
         })),
         sorts: sortStages,
-        fields: visibleColumns,
+        fields: [...new Set([...visibleColumns, 'path'])],
         facets: false,
       }),
     [filterSearch, groupLogic, groups, sortStages, visibleColumns],
@@ -756,6 +756,18 @@ export function App() {
 
   const resolveTrackPath = (track: Track) =>
     (inspectedDetail?.id === track.id && inspectedDetail.path) || track.path || ''
+
+  const exportPlaylist = (tracks: Track[], format: 'm3u8' | 'xml', filename?: string) => {
+    if (!tracks.length) return false
+    const missing = tracks.find((track) => !track.path?.trim())
+    if (missing) {
+      showToast(`Dateipfad fehlt: ${missing.title}. Füge den Track aus der Bibliothek erneut zum Set hinzu.`)
+      return false
+    }
+    if (format === 'xml') exportRekordboxXml(tracks)
+    else exportM3u8Playlist(tracks, filename)
+    return true
+  }
 
   const handleRekordboxTransport = async (
     track: Track,
@@ -1288,8 +1300,7 @@ export function App() {
             onFindRekordbox={(track) => setModal({ type: 'find', track })}
             onRekordboxAction={(track, action) => void handleRekordboxTransport(track, action)}
             onExportFilteredM3u8={(tracks) => {
-              if (!tracks.length) return
-              exportM3u8Playlist(tracks, 'airdox-filter-treffer.m3u8')
+              if (!exportPlaylist(tracks, 'm3u8', 'airdox-filter-treffer.m3u8')) return
               showToast(`${tracks.length} Filter-Treffer als M3U8 exportiert.`)
             }}
             setTracks={setTracks}
@@ -1315,13 +1326,11 @@ export function App() {
               showToast('Setliste als CSV exportiert.')
             }}
             onExportM3u8={() => {
-              if (!setTracks.length) return
-              exportM3u8Playlist(setTracks)
+              if (!exportPlaylist(setTracks, 'm3u8')) return
               showToast('Setliste als M3U8-Playlist exportiert.')
             }}
             onExportXml={() => {
-              if (!setTracks.length) return
-              exportRekordboxXml(setTracks)
+              if (!exportPlaylist(setTracks, 'xml')) return
               showToast('Setliste als Rekordbox-XML exportiert.')
             }}
             onClearSet={() => setModal({ type: 'clearSet' })}
@@ -1510,7 +1519,7 @@ export function App() {
             primary: true,
             disabled: !setTracks.length,
             onClick: () => {
-              exportM3u8Playlist(setTracks)
+              if (!exportPlaylist(setTracks, 'm3u8')) return
               setModal(null)
               showToast('M3U8-Playlist exportiert (in Rekordbox importieren).')
             },
@@ -1519,7 +1528,7 @@ export function App() {
             label: 'Rekordbox XML exportieren',
             disabled: !setTracks.length,
             onClick: () => {
-              exportRekordboxXml(setTracks)
+              if (!exportPlaylist(setTracks, 'xml')) return
               setModal(null)
               showToast('Rekordbox-XML exportiert (rekordbox.xml Import).')
             },

@@ -218,45 +218,25 @@ describe('camelot-wheel.tsx', () => {
     fireEvent.click(seg8A, { metaKey: true })
     expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
 
-    // Keyboard activation: Enter and Space (plain = false with preventDefault)
-    const enterEvt = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, bubbles: true })
-    const preventEnter = vi.spyOn(enterEvt, 'preventDefault')
-    seg8A.dispatchEvent(enterEvt)
-    expect(preventEnter).toHaveBeenCalled()
-    expect(onToggleKey).toHaveBeenLastCalledWith('8A', false)
-
-    const spaceEvt = new KeyboardEvent('keydown', { key: ' ', cancelable: true, bubbles: true })
-    const preventSpace = vi.spyOn(spaceEvt, 'preventDefault')
-    seg8A.dispatchEvent(spaceEvt)
-    expect(preventSpace).toHaveBeenCalled()
-    expect(onToggleKey).toHaveBeenLastCalledWith('8A', false)
-
-    // Keyboard activation with modifiers: Ctrl, Shift, Meta
-    const enterShift = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, cancelable: true, bubbles: true })
-    seg8A.dispatchEvent(enterShift)
-    expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
-
-    const enterCtrl = new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, cancelable: true, bubbles: true })
-    seg8A.dispatchEvent(enterCtrl)
-    expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
-
-    const enterMeta = new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, cancelable: true, bubbles: true })
-    seg8A.dispatchEvent(enterMeta)
-    expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
-
-    const spaceCtrl = new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, cancelable: true, bubbles: true })
-    seg8A.dispatchEvent(spaceCtrl)
-    expect(onToggleKey).toHaveBeenLastCalledWith('8A', true)
-
-    // Ignored keys: Tab, Escape, ArrowRight, 'a' (must NOT preventDefault and must NOT trigger onToggleKey)
-    const callCountBefore = onToggleKey.mock.calls.length
-    for (const key of ['Tab', 'Escape', 'ArrowRight', 'a']) {
-      const ignEvt = new KeyboardEvent('keydown', { key, cancelable: true, bubbles: true })
-      const ignPrevent = vi.spyOn(ignEvt, 'preventDefault')
-      seg8A.dispatchEvent(ignEvt)
-      expect(ignPrevent).not.toHaveBeenCalled()
+    for (const key of ['Enter', ' ']) {
+      for (const [modifiers, additive] of [
+        [{}, false], [{ ctrlKey: true }, true], [{ shiftKey: true }, true], [{ metaKey: true }, true],
+      ] as const) {
+        onToggleKey.mockClear()
+        const event = new KeyboardEvent('keydown', { key, cancelable: true, bubbles: true, ...modifiers })
+        fireEvent(seg8A, event)
+        expect(event.defaultPrevented).toBe(true)
+        expect(onToggleKey.mock.calls).toEqual([['8A', additive]])
+      }
     }
-    expect(onToggleKey.mock.calls.length).toBe(callCountBefore)
+
+    onToggleKey.mockClear()
+    for (const key of ['Tab', 'Escape', 'ArrowRight', 'a']) {
+      const event = new KeyboardEvent('keydown', { key, cancelable: true, bubbles: true })
+      fireEvent(seg8A, event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(onToggleKey).not.toHaveBeenCalled()
 
     // Quick chips: title & active/current classes + click
     const chip8A = container.querySelector('.keychip[data-key="8A"]')!
@@ -267,17 +247,13 @@ describe('camelot-wheel.tsx', () => {
       '8A (aktuelle Tonart) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
     )
     const chip7A = container.querySelector('.keychip[data-key="7A"]')!
-    expect(chip7A).not.toHaveClass('active')
-    expect(chip7A).not.toHaveClass('current')
-    expect(chip7A.className).toBe('keychip  ')
+    expect(chip7A).toHaveClass('keychip', { exact: true })
     expect(chip7A).toHaveAttribute(
       'title',
       '7A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
     )
     const chip9A = container.querySelector('.keychip[data-key="9A"]')!
-    expect(chip9A).toHaveClass('active')
-    expect(chip9A).not.toHaveClass('current')
-    expect(chip9A.className).toBe('keychip active ')
+    expect(chip9A).toHaveClass('keychip active', { exact: true })
     expect(chip9A).toHaveAttribute(
       'title',
       '9A (harmonischer Nachbar) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',
@@ -335,5 +311,6 @@ describe('camelot-wheel.tsx', () => {
     )
     expect(screen.getByText('Fixierte Referenz')).toBeInTheDocument()
     expect(screen.getByText('Keine Keys gewählt – klicke ein Segment')).toBeInTheDocument()
+    expect(chip8A).toHaveClass('keychip current', { exact: true })
   })
 })

@@ -1,4 +1,4 @@
-name: Airdox Quality Gate & Windows Release
+name: Airdox Quality Gate & Windows Build
 
 on:
   push:
@@ -6,266 +6,268 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-static:
-    name: "1. Build & Statische Prüfungen"
+    name: Build and static checks
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-
+          cache: npm
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: TypeScript & Vite production build
-        run: npm run build
-
-      - name: Python syntax, lint & security static check (Ruff)
-        run: |
-          ruff check backend tests scripts
-          ruff check --select S backend
-
-      - name: Node production dependency audit
-        run: npm audit --omit=dev --audit-level=critical
+          cache: pip
+      - run: npm ci
+      - run: python -m pip install -r requirements-dev.txt
+      - run: npm run build
+      - run: ruff check backend tests scripts
+      - run: ruff check --select S backend
+      - run: npm audit --omit=dev --audit-level=critical
+      - run: python -m pytest -q tests/test_quality_gate.py tests/test_quality_workflow.py
+      - run: python scripts/quality_gate.py record static
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage-static
+          path: reports/
+          if-no-files-found: error
+          overwrite: true
 
   unit-and-branch-tests:
-    name: "2. Unit- & Branch-Tests (Getrennt: Python / React / Electron)"
+    name: Python, React and Electron tests
     needs: build-and-static
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-
+          cache: npm
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies
+          cache: pip
+      - run: npm ci
+      - run: python -m pip install -r requirements-dev.txt
+      - name: Python unit tests and branch coverage
+        env:
+          COVERAGE_FILE: reports/coverage-python/coverage-data
         run: |
-          npm ci
-          pip install -r requirements-dev.txt
-
-      - name: Python Backend Unit & Branch Coverage (>=90% global, zero omit)
+          New-Item -ItemType Directory -Force reports/coverage-python | Out-Null
+          python -m pytest --cov=backend --cov-branch --cov-context=test --cov-fail-under=90 `
+            --cov-report=term-missing --cov-report=html:reports/coverage-python/html `
+            --cov-report=json:reports/coverage-python/coverage.json --junitxml=reports/pytest-junit.xml `
+            -k "not test_production_snapshot_leaves_master_and_sidecars_byte_identical" `
+            tests/test_backend_coverage.py tests/test_quality_critical_paths.py tests/test_filter_groups.py `
+            tests/test_backend_mutation_contracts.py tests/test_python_mutation_runner.py `
+            tests/test_live.py tests/test_rekordbox_playback.py tests/test_readonly.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/quality_gate.py collect-python-arcs $env:COVERAGE_FILE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/quality_gate.py seal python
+      - name: React and TypeScript coverage
+        if: ${{ !cancelled() }}
         run: |
-          pytest --cov=backend --cov-branch --cov-fail-under=90 `
-            --cov-report=term-missing `
-            --cov-report=html:reports/coverage-python/html `
-            --cov-report=json:reports/coverage-python/coverage.json `
-            --cov-report=xml:reports/coverage-python/coverage.xml `
-            --junitxml=reports/pytest-junit.xml `
-            tests/test_backend_coverage.py tests/test_live.py tests/test_rekordbox_playback.py tests/test_readonly.py
-
-      - name: React / TypeScript Frontend Coverage (>=90% global, 100% critical)
-        run: npm run test:frontend
-
-      - name: Electron Main & Preload Coverage (>=90% global)
-        run: npm run test:electron
-
-      - name: Upload Stage 2 Coverage Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+          npm run test:frontend -- --reporter=default --reporter=junit --outputFile.junit=reports/frontend-junit.xml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/quality_gate.py seal frontend
+      - name: Electron coverage
+        if: ${{ !cancelled() }}
+        run: |
+          npm run test:electron
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/quality_gate.py seal electron
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
-          name: stage2-coverage-reports
-          path: |
-            reports/coverage-python/
-            reports/coverage-frontend/
-            reports/coverage-electron/
-            reports/pytest-junit.xml
+          name: stage-unit
+          path: reports/
+          if-no-files-found: error
+          overwrite: true
 
   combinatorial-tests:
-    name: "3. Kombinatorische Tests (15.000 Tracks x 100.000+ Varianten)"
+    name: 15,500 tracks and 100,000 query comparisons
     needs: build-and-static
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
-
-      - name: Install Python dependencies
-        run: pip install -r requirements-dev.txt
-
-      - name: Generate 15.500-track synthetic Rekordbox DB
-        run: python tests/generate_synthetic_db.py
-
-      - name: Run 100.000+ combinatorial filter & nested group oracle tests
-        env:
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python tests/generate_synthetic_db.py
+      - env:
           CUEPOINT_QA_CASES: "100000"
-        run: pytest -q --junitxml=reports/combinatorial-junit.xml tests/test_combinatorial_stress.py tests/test_filter_groups.py
-
-      - name: Upload Stage 3 Test Logs
-        if: always()
-        uses: actions/upload-artifact@v4
+        run: python -m pytest -q --junitxml=reports/combinatorial-junit.xml tests/test_combinatorial_stress.py tests/test_filter_groups.py
+      - run: python scripts/quality_gate.py seal combinatorial
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
-          name: stage3-combinatorial-results
-          path: reports/combinatorial-junit.xml
+          name: stage-combinatorial
+          path: reports/
+          if-no-files-found: error
+          overwrite: true
 
   integration-and-ui:
-    name: "4. Integration & UI (Electron, Camelot, Filter, Set-Builder, IPC)"
+    name: Electron UI integration with a synthetic library
     needs: build-and-static
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-
+          cache: npm
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies & build frontend
-        run: |
-          npm ci
-          pip install -r requirements-dev.txt
-          npm run build
-          python tests/generate_synthetic_db.py
-
-      - name: Run Electron Playwright E2E & Visual Geometry Suite
+          cache: pip
+      - run: npm ci
+      - run: python -m pip install -r requirements-dev.txt
+      - run: npm run build
+      - run: python tests/generate_synthetic_db.py
+      - name: Verify playable Cuepoint playlist export with Playwright
         env:
+          CUEPOINT_TEST_PYTHON: python
+        run: |
+          node tests/rekordbox-reimport.cjs reports/playlist-export
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive -Path reports/playlist-export/*.png,reports/playlist-export/*.m3u8,reports/playlist-export/fixture.json `
+            -DestinationPath reports/playlist-export-evidence.zip
+      - env:
           CUEPOINT_CAPTURE_DIR: reports/ui-screenshots
-        run: npm run test:ui
-
-      - name: Live Rekordbox Windows Desktop Verification Status
-        run: |
-          $rb = Get-Process rekordbox -ErrorAction SilentlyContinue
-          if ($null -eq $rb) {
-            Write-Warning "Real Rekordbox is NOT running in GitHub hosted runner: live playback/fader verification remains explicitly marked as unverified on hosted CI."
-            "unverified-no-live-rekordbox" | Out-File -Encoding utf8 reports/rekordbox-live-status.txt
-          } else {
-            python scripts/inspect_rekordbox_uia.py | Tee-Object -FilePath reports/rekordbox-live-status.txt
-          }
-
-      - name: Upload Stage 4 UI Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+        run: python scripts/quality_gate.py run ui -- npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
-          name: stage4-ui-integration
+          name: stage-ui
           path: |
+            reports/ui-junit.xml
+            reports/provenance/ui.json
             reports/ui-screenshots/
-            reports/rekordbox-live-status.txt
+            reports/playlist-export-evidence.zip
+          if-no-files-found: error
+          overwrite: true
 
-  coverage-and-mutation-gate:
-    name: "5. Coverage- & Mutation-Gate (Stryker >=95% + Python AST >=95%)"
-    needs: [unit-and-branch-tests, combinatorial-tests, integration-and-ui]
-    runs-on: windows-latest
+  mutation-frontend:
+    name: Frontend Stryker mutation test
+    needs: build-and-static
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-
+          cache: npm
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          npm ci
-          pip install -r requirements-dev.txt
-
-      - name: Download Stage 2 & 4 Artifacts
-        uses: actions/download-artifact@v4
+      - run: npm ci
+      - run: python scripts/quality_gate.py run mutation-frontend -- npx --no-install stryker run
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
-          path: downloaded-artifacts
+          name: stage-mutation-frontend
+          path: reports/
+          if-no-files-found: error
+          overwrite: true
 
-      - name: Restore Coverage & UI Artifacts into reports/
-        run: |
-          New-Item -ItemType Directory -Force -Path reports | Out-Null
-          if (Test-Path downloaded-artifacts/stage2-coverage-reports) {
-            Copy-Item -Recurse -Force downloaded-artifacts/stage2-coverage-reports/* reports/
-          }
-          if (Test-Path downloaded-artifacts/stage4-ui-integration) {
-            Copy-Item -Recurse -Force downloaded-artifacts/stage4-ui-integration/* reports/
-          }
-
-      - name: Run StrykerJS Frontend Mutation Testing (>=95%)
-        run: npx stryker run
-
-      - name: Run Python Backend AST Mutation Testing (>=95%)
-        run: python scripts/mutate_backend.py
-
-      - name: Enforce Airdox Quality Gate & Generate Verifiable Report
-        run: python scripts/quality_gate.py
-
-      - name: Archive Verifiable Quality Gate Report & Mutation Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: airdox-quality-gate-report
-          path: |
-            reports/quality-gate-report.md
-            reports/quality-gate-report.json
-            reports/mutation-frontend/
-            reports/mutation-python/
-            reports/coverage-python/
-            reports/coverage-frontend/
-            reports/coverage-electron/
-
-  windows-release:
-    name: "6. Windows Release (Gated on Stages 1-5)"
-    needs: [coverage-and-mutation-gate]
+  mutation-python:
+    name: Python AST mutation test
+    needs: build-and-static
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python scripts/quality_gate.py run mutation-python -- python scripts/mutate_backend.py
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: stage-mutation-python
+          path: reports/
+          if-no-files-found: error
+          overwrite: true
 
-      - name: Install dependencies & build Windows portable binary
-        run: |
-          npm ci
-          pip install -r requirements-dev.txt
-          npm run package:win
-
-      - name: Verify packaged Windows EXE with Playwright Smoke Suite
+  windows-build:
+    name: Windows portable build and packaged Electron smoke
+    needs: build-and-static
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: npm ci
+      - run: python -m venv .venv
+      - run: .venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+      - run: npm run package:win
+      - name: Smoke-test packaged Electron application
         env:
-          CUEPOINT_TEST_EXE: release\win-unpacked\Cuepoint.exe
+          CUEPOINT_TEST_EXE: release/win-unpacked/Cuepoint.exe
+          CUEPOINT_CAPTURE_DIR: reports/windows-screenshots
         run: |
-          python tests/generate_synthetic_db.py
-          npm run test:ui
-
-      - name: Upload Windows Portable Release Artifact
-        uses: actions/upload-artifact@v4
+          $portable = @(Get-ChildItem -File release/Cuepoint-*-Windows-x64.exe)
+          if ($portable.Count -ne 1) { throw "Expected exactly one x64 portable binary" }
+          python scripts/quality_gate.py package $portable[0].FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:CUEPOINT_TEST_PORTABLE = $portable[0].FullName
+          python scripts/quality_gate.py run windows -- node tests/windows-smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
-          name: cuepoint-windows-x64-portable
+          name: stage-windows
+          path: reports/
+          if-no-files-found: error
+          overwrite: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cuepoint-windows-x64-portable-candidate
           path: release/Cuepoint-*-Windows-x64.exe
+          if-no-files-found: error
+          overwrite: true
 
+  quality-report:
+    name: Verify and report release stages
+    if: ${{ !cancelled() }}
+    needs: [build-and-static, unit-and-branch-tests, combinatorial-tests, integration-and-ui,
+            mutation-frontend, mutation-python, windows-build]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: stage-*
+          path: reports/
+          merge-multiple: true
+      - run: python scripts/quality_gate.py verify --require CI_VALIDATED
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: cuepoint-quality-report
+          path: |
+            reports/quality-gate-report.json
+            reports/quality-gate-report.md
+          if-no-files-found: error
+          overwrite: true

@@ -6,6 +6,7 @@ build/
 release/
 test-results/
 reports/
+.coverage
 .stryker-tmp/
 *.db
 *.db-wal

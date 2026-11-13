@@ -59,7 +59,7 @@ def _parse_range(value):
     low, high = number(parts[0]), number(parts[1])
     if low is None or high is None:
         return None
-    return (low, high) if low <= high else (high, low)
+    return tuple(sorted((low, high)))
 
 
 def _track(raw):
@@ -289,7 +289,7 @@ class Library:
                 if lo is None or hi is None:
                     return False
                 asc = self._sort_asc["key"]
-                mask &= (asc >= min(lo, hi)) & (asc <= max(lo, hi)) & (asc < 26)
+                mask &= (asc >= min(lo, hi)) & (asc <= max(lo, hi))
                 return True
             if field == "id":
                 lo_i = bisect_left(self._ids, min(parts))
@@ -297,9 +297,7 @@ class Library:
                 mask &= (self._pos >= lo_i) & (self._pos < hi_i)
                 return True
             values = self._text_values[field]
-            lo_t, hi_t = folded(parts[0]), folded(parts[1])
-            if lo_t > hi_t:
-                lo_t, hi_t = hi_t, lo_t
+            lo_t, hi_t = sorted(map(folded, parts))
             asc = self._sort_asc[field]
             mask &= (asc >= bisect_left(values, lo_t)) & (asc < bisect_right(values, hi_t))
             return True
@@ -407,7 +405,7 @@ class Library:
                 return idx[::-1] if desc else idx
             col = self._sort_desc[field] if desc else self._sort_asc[field]
             return idx[np.argsort(col[idx], kind="stable")]
-        keys = [] if "id" in used else [idx]
+        keys = [idx]
         for field, desc in reversed(stages):
             if field == "id":
                 keys.append(-idx if desc else idx)

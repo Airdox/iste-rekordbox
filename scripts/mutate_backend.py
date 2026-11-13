@@ -6,22 +6,27 @@ Generates single-site syntactic mutants across:
   - backend/rekordbox_live.py (_crossfader_gain, combine_fader_levels, _progress)
   - backend/main.py (_select_anchor fader disambiguation & hysteresis)
 
-Exits with code 0 when mutation score >= threshold (default 95.0%), else 1.
+Exits with code 0 when each module meets the threshold without runner errors or timeouts.
 Writes reports/mutation-python/mutation-report.json.
 """
 
 from __future__ import annotations
 
+import argparse
 import ast
 import concurrent.futures
 import copy
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
+from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT_DIR = ROOT / "reports" / "mutation-python"
@@ -47,6 +52,40 @@ TARGETS: dict[str, set[str] | None] = {
     },
 }
 
+COVERAGE_TESTS = "tests/test_backend_coverage.py"
+PLAYBACK_TESTS = "tests/test_rekordbox_playback.py"
+BOUNDARY_TESTS = "tests/test_backend_mutation_contracts.py"
+AST_CONTRACT = f"{COVERAGE_TESTS}::test_backend_ast_mutation_killer_suite"
+BASELINE_TESTS = (COVERAGE_TESTS, PLAYBACK_TESTS, BOUNDARY_TESTS)
+TESTS_BY_MODULE = {
+    "backend/keys.py": (
+        AST_CONTRACT,
+        f"{COVERAGE_TESTS}::test_keys_all_notations_and_empty_compatible",
+        f"{BOUNDARY_TESTS}::test_open_key_maps_all_numbers_in_both_modes",
+    ),
+    "backend/library.py": (
+        AST_CONTRACT,
+        f"{COVERAGE_TESTS}::test_library_all_rule_branches_ranges_sorts_projections_and_waveform",
+        f"{BOUNDARY_TESTS}::test_filter_ranges_include_both_edges",
+        f"{BOUNDARY_TESTS}::test_multiple_sort_stages_resolve_ties_in_priority_order",
+        f"{PLAYBACK_TESTS}::test_local_playing_deck_drives_matches_with_effective_bpm",
+    ),
+    "backend/rekordbox_live.py": (
+        AST_CONTRACT,
+        f"{COVERAGE_TESTS}::test_rekordbox_live_faders_crossfader_master_and_discover",
+        f"{BOUNDARY_TESTS}::test_crossfader_center_and_both_sides",
+        f"{BOUNDARY_TESTS}::test_playback_progress_accepts_forward_step_and_rejects_clock_tearing",
+        PLAYBACK_TESTS,
+    ),
+    "backend/main.py": (
+        AST_CONTRACT,
+        f"{BOUNDARY_TESTS}::test_anchor_filters_paused_and_empty_rekordbox_decks_before_preference",
+        f"{BOUNDARY_TESTS}::test_anchor_applies_inclusive_fader_and_exclusive_master_thresholds",
+        f"{BOUNDARY_TESTS}::test_anchor_prefers_playing_then_master_when_levels_tie",
+        PLAYBACK_TESTS,
+    ),
+}
+
 CMP_SWAPS: dict[type[ast.cmpop], type[ast.cmpop]] = {
     ast.LtE: ast.Lt,
     ast.Lt: ast.LtE,
@@ -66,37 +105,6 @@ BINOP_SWAPS: dict[type[ast.operator], type[ast.operator]] = {
 BOOLOP_SWAPS: dict[type[ast.boolop], type[ast.boolop]] = {
     ast.And: ast.Or,
     ast.Or: ast.And,
-}
-
-EQUIVALENT_MUTANTS: dict[tuple[str, str, str], str] = {
-    ("backend/keys.py", "camelot", "Add -> Sub"): (
-        "Mathematically equivalent in modulo 12 arithmetic: "
-        "(x + 6) % 12 == (x - 6) % 12 for all integers x in range 1..12."
-    ),
-    ("backend/library.py", "_apply_rule", "Gt -> GtE"): (
-        "Semantically equivalent: when lo_t == hi_t, swapping identical strings "
-        "lo_t, hi_t = hi_t, lo_t leaves both variables completely unchanged."
-    ),
-    ("backend/library.py", "_apply_rule", "Lt -> LtE"): (
-        "Semantically equivalent: max(lo, hi) <= 25 for all valid Camelot keys, "
-        "so asc <= max(lo, hi) strictly implies asc < 26. asc <= 26 is redundant."
-    ),
-    ("backend/rekordbox_live.py", "_crossfader_gain", "Gt -> GtE"): (
-        "Mathematically equivalent: at pos = 0.5, (1.0 - 0.5) * 2.0 == 1.0, "
-        "so both the True branch and False branch evaluate to exactly 1.0."
-    ),
-    ("backend/rekordbox_live.py", "_crossfader_gain", "Lt -> LtE"): (
-        "Mathematically equivalent: at pos = 0.5, 0.5 * 2.0 == 1.0, "
-        "so both the True branch and False branch evaluate to exactly 1.0."
-    ),
-    ("backend/main.py", "_select_anchor", "Gt -> GtE"): (
-        "Semantically equivalent: when len(available) == 1, available[0] is prev. "
-        "Both if branch (returning prev) and else branch (returning min(available) == prev) yield prev."
-    ),
-    ("backend/main.py", "_select_anchor", "Eq -> NotEq"): (
-        "Semantically equivalent: index 2 is only reached when fader levels and master flags are tied with prev. "
-        "Under ties, neither fader_beat (+0.10) nor master_beat can hold, so selected is always prev."
-    ),
 }
 
 
@@ -122,6 +130,7 @@ def _collect_mutants(rel_path: str, allowed_funcs: set[str] | None) -> list[dict
     tree = ast.parse(src)
     parents = _build_parents(tree)
     mutants: list[dict] = []
+    occurrences: Counter[tuple[str, str, str]] = Counter()
 
     for idx, node in enumerate(ast.walk(tree)):
         func = _enclosing_func(parents, node)
@@ -175,161 +184,146 @@ def _collect_mutants(rel_path: str, allowed_funcs: set[str] | None) -> list[dict
 
         ast.fix_missing_locations(mut_tree)
         mut_src = ast.unparse(mut_tree)
+        site = (func or "<module>", desc, ast.dump(node))
+        occurrences[site] += 1
+        fingerprint = hashlib.sha256(repr((*site, occurrences[site])).encode("utf-8")).hexdigest()[:20]
         mutants.append({
-            "id": f"{rel_path}:{getattr(node, 'lineno', 0)}:{len(mutants) + 1}",
+            "id": f"{rel_path}:{site[0]}:{fingerprint}",
             "file": rel_path,
-            "function": func or "<module>",
-            "line": getattr(node, "lineno", 0),
+            "function": site[0],
+            "line": node.lineno,
+            "column": node.col_offset + 1,
             "mutation": desc,
             "source": mut_src,
         })
     return mutants
 
 
-def _run_mutant(args: tuple[dict, str]) -> dict:
-    mutant, python_exe = args
-    tmp = Path(tempfile.mkdtemp(prefix="mut_"))
+def _run_pytest(cwd: Path, test_paths: tuple[str, ...], report: Path, timeout: float, *, fail_fast=False) -> dict:
+    report.unlink(missing_ok=True)
+    env = os.environ.copy()
+    env.pop("PYTEST_ADDOPTS", None)
+    env.pop("PYTEST_PLUGINS", None)
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONPATH"] = f"{cwd / 'backend'}{os.pathsep}{cwd}"
+    command = [sys.executable, "-m", "pytest", "-q", "-o", "addopts=", f"--junitxml={report}"]
+    if fail_fast:
+        command.append("-x")
+    started = perf_counter()
     try:
-        shutil.copytree(ROOT / "backend", tmp / "backend")
-        shutil.copytree(ROOT / "tests", tmp / "tests")
-        if (ROOT / "pyproject.toml").exists():
-            shutil.copy2(ROOT / "pyproject.toml", tmp / "pyproject.toml")
-        (tmp / mutant["file"]).write_text(mutant["source"], encoding="utf-8")
-
-        env = os.environ.copy()
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        env["PYTHONPATH"] = f"{tmp / 'backend'}{os.pathsep}{tmp}"
         proc = subprocess.run(
-            [
-                python_exe,
-                "-m",
-                "pytest",
-                "-q",
-                "-x",
-                "-p",
-                "no:cov",
-                "-o",
-                "addopts=",
-                "tests/test_backend_coverage.py",
-                "tests/test_rekordbox_playback.py",
-            ],
-            cwd=str(tmp),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=25,
+            [*command, *test_paths], cwd=cwd, env=env, capture_output=True,
+            encoding="utf-8", errors="replace", timeout=timeout,
         )
-        status = "killed" if proc.returncode != 0 else "survived"
-        return {
-            "id": mutant["id"],
-            "file": mutant["file"],
-            "function": mutant["function"],
-            "line": mutant["line"],
-            "mutation": mutant["mutation"],
-            "status": status,
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "id": mutant["id"],
-            "file": mutant["file"],
-            "function": mutant["function"],
-            "line": mutant["line"],
-            "mutation": mutant["mutation"],
-            "status": "timeout",
-        }
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    except subprocess.TimeoutExpired as exc:
+        stdout = (exc.stdout or b"").decode("utf-8", errors="replace")
+        stderr = (exc.stderr or b"").decode("utf-8", errors="replace")
+        return {"status": "timeout", "durationMs": (perf_counter() - started) * 1000,
+                "diagnostic": f"Timed out after {timeout:g}s.\n" + (stdout + stderr)[-6000:]}
+    duration = (perf_counter() - started) * 1000
+    try:
+        tests = ET.parse(report).findall(".//testcase")
+    except (OSError, ET.ParseError):
+        tests = []
+    failures = [f"{test.attrib['classname']}::{test.attrib['name']}" for test in tests
+                if test.find("failure") is not None]
+    errors = any(test.find("error") is not None for test in tests)
+    ran_test = any(test.find("skipped") is None for test in tests)
+    result = {"status": "error", "durationMs": duration, "exitCode": proc.returncode, "failedTests": failures}
+    if not errors and ran_test:
+        if proc.returncode == 0 and not failures:
+            result["status"] = "survived"
+        elif proc.returncode == 1 and failures:
+            result["status"] = "killed"
+    if result["status"] == "error":
+        result["diagnostic"] = (proc.stdout + proc.stderr)[-6000:]
+    return result
+
+
+def _run_mutant(mutant: dict, timeout: float) -> dict:
+    details = {key: value for key, value in mutant.items() if key != "source"}
+    try:
+        with tempfile.TemporaryDirectory(prefix="cuepoint-mut-", ignore_cleanup_errors=True) as directory:
+            tmp = Path(directory)
+            ignore = shutil.ignore_patterns("__pycache__", ".pytest_cache")
+            shutil.copytree(ROOT / "backend", tmp / "backend", ignore=ignore)
+            shutil.copytree(ROOT / "tests", tmp / "tests", ignore=ignore)
+            shutil.copy2(ROOT / "pyproject.toml", tmp / "pyproject.toml")
+            (tmp / mutant["file"]).write_text(mutant["source"], encoding="utf-8")
+            outcome = _run_pytest(tmp, TESTS_BY_MODULE[mutant["file"]], tmp / "junit.xml", timeout, fail_fast=True)
+            return {**details, **outcome}
+    except OSError as exc:
+        return {**details, "status": "error", "diagnostic": str(exc)}
+
+
+def _summary(results, threshold):
+    counts = Counter(result["status"] for result in results)
+    total = len(results)
+    score = 100 * counts["killed"] / total if total else 0.0
+    return {
+        "total": total,
+        "killed": counts["killed"],
+        "survived": counts["survived"],
+        "timeout": counts["timeout"],
+        "error": counts["error"],
+        "mutationScore": score,
+        "passed": total > 0 and score >= threshold and counts["timeout"] == 0 and counts["error"] == 0,
+    }
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workers", type=int, default=min(4, max(1, (os.cpu_count() or 2) // 2)))
+    parser.add_argument("--timeout-seconds", type=float, default=30.0)
+    args = parser.parse_args()
+    if args.workers < 1 or not 0 < args.timeout_seconds < float("inf"):
+        parser.error("workers and timeout must be positive and finite")
     threshold = float(os.environ.get("MUTATION_THRESHOLD", "95.0"))
-    python_exe = sys.executable
-
-    # Sanity check: unmutated baseline must pass
-    baseline = subprocess.run(
-        [
-            python_exe,
-            "-m",
-            "pytest",
-            "-q",
-            "-p",
-            "no:cov",
-            "-o",
-            "addopts=",
-            "tests/test_backend_coverage.py",
-            "tests/test_rekordbox_playback.py",
-        ],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-    )
-    if baseline.returncode != 0:
-        print("Baseline tests failed before mutation run:\n", baseline.stdout, baseline.stderr)
-        return 1
-
-    all_mutants: list[dict] = []
-    for rel_path, funcs in TARGETS.items():
-        all_mutants.extend(_collect_mutants(rel_path, funcs))
-
-    print(f"Running {len(all_mutants)} Python AST mutants across {len(TARGETS)} critical backend modules...")
-    results: list[dict] = []
-    workers = min(4, max(1, (os.cpu_count() or 2) // 2))
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
-        for res in pool.map(_run_mutant, [(m, python_exe) for m in all_mutants]):
-            results.append(res)
-
-    killed = sum(1 for r in results if r["status"] in ("killed", "timeout"))
-    total = len(results)
-    score = round((killed / total * 100.0) if total else 100.0, 2)
-    survivors = [r for r in results if r["status"] == "survived"]
-
-    classified_survivors: list[dict] = []
-    for s in survivors:
-        key = (s["file"], s["function"], s["mutation"])
-        equiv_reason = EQUIVALENT_MUTANTS.get(key)
-        item = dict(s)
-        if equiv_reason:
-            item["classification"] = "proven_equivalent"
-            item["equivalenceRationale"] = equiv_reason
-        else:
-            item["classification"] = "unexplained_survivor"
-        classified_survivors.append(item)
-
-    equiv_count = sum(1 for s in classified_survivors if s.get("classification") == "proven_equivalent")
-    unexplained = [s for s in classified_survivors if s.get("classification") == "unexplained_survivor"]
-    effective_total = total - equiv_count
-    effective_score = round((killed / effective_total * 100.0) if effective_total else 100.0, 2)
-    passed = (score >= threshold) or (effective_score >= threshold and len(unexplained) == 0)
-
+    if not 95.0 <= threshold <= 100.0:
+        parser.error("MUTATION_THRESHOLD must be between 95 and 100")
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    baseline = _run_pytest(ROOT, BASELINE_TESTS, REPORT_DIR / "baseline-junit.xml", 180.0)
+    results = []
+    if baseline["status"] == "survived":
+        mutants = [mutant for path, functions in TARGETS.items() for mutant in _collect_mutants(path, functions)]
+        print(f"Running {len(mutants)} Python AST mutants on {args.workers} workers.", flush=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures = [pool.submit(_run_mutant, mutant, args.timeout_seconds) for mutant in mutants]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+                if len(results) % 20 == 0:
+                    print(f"Python AST mutations finished: {len(results)}/{len(mutants)}", flush=True)
+        results.sort(key=lambda result: (result["file"], result["line"], result["column"], result["id"]))
+    else:
+        print(f"Unmutated baseline failed: {baseline}", flush=True)
+
+    per_file = {path: _summary([result for result in results if result["file"] == path], threshold)
+                for path in TARGETS}
     report = {
-        "total": total,
-        "killed": killed,
-        "survived": len(survivors),
-        "mutationScore": score,
-        "effectiveScore": effective_score,
-        "provenEquivalentCount": equiv_count,
-        "unexplainedCount": len(unexplained),
-        "unexplainedSurvivors": unexplained,
+        "schemaVersion": 2,
+        **_summary(results, threshold),
         "threshold": threshold,
-        "passed": passed,
-        "survivors": classified_survivors,
+        "workers": args.workers,
+        "timeoutSeconds": args.timeout_seconds,
+        "baseline": baseline,
+        "testSelection": TESTS_BY_MODULE,
+        "perFile": per_file,
+        "survivors": [result for result in results if result["status"] == "survived"],
         "results": results,
     }
+    report["passed"] = report["passed"] and all(summary["passed"] for summary in per_file.values())
     REPORT_FILE.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(
-        f"Python Mutation Score: {score:.2f}% ({killed}/{total} killed, threshold {threshold:.1f}%)\n"
-        f"Effective Score (excl. {equiv_count} proven equivalent mutants): {effective_score:.2f}%\n"
-        f"Unexplained Survivors: {len(unexplained)}"
-    )
-    if unexplained:
-        print("Unexplained surviving mutants:")
-        for s in unexplained:
-            print(f"  - {s['id']} ({s['function']}): {s['mutation']}")
-    elif equiv_count:
-        print(f"All {equiv_count} surviving mutants verified and classified as mathematically equivalent.")
-    return 0 if passed else 1
+    for path, summary in per_file.items():
+        print(f"{path}: {summary['mutationScore']:.2f}% ({summary['killed']}/{summary['total']} killed, "
+              f"{summary['timeout']} timeout, {summary['error']} error)")
+    if report["survivors"]:
+        print("Surviving mutants (first 15):")
+        for survivor in report["survivors"][:15]:
+            print(f"  - {survivor['id']} line {survivor['line']}: {survivor['mutation']}")
+    return 0 if report["passed"] else 1
 
 
 if __name__ == "__main__":

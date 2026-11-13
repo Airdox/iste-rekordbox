@@ -111,7 +111,7 @@ export function SetView({
             ) : (
               tracks.map((t, i) => {
                 const next = tracks[i + 1]
-                const transition = next ? harmonicTransition(t.key, next.key) : null
+                const transition = next ? { ...harmonicTransition(t.key, next.key), key: next.key } : null
                 const bpmDiff =
                   next && t.bpm !== null && next.bpm !== null
                     ? (next.bpm - t.bpm >= 0 ? '+' : '') + (next.bpm - t.bpm).toFixed(1) + ' BPM'
@@ -182,13 +182,13 @@ export function SetView({
                       </div>
                     </div>
 
-                    {transition && next && (
+                    {transition && (
                       <div className="transition">
                         Übergang #{i + 1} → #{i + 2}:{' '}
                         <strong className={transition.kind === 'warning' ? 'warning' : ''}>
                           {transition.label}
                         </strong>{' '}
-                        ({t.key ?? '–'} → {next.key ?? '–'}) · {bpmDiff}
+                        ({t.key ?? '–'} → {transition.key ?? '–'}) · {bpmDiff}
                       </div>
                     )}
                   </div>

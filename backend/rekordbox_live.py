@@ -150,9 +150,8 @@ def _crossfader_gain(crossfader_pos, deck_index, total_decks):
     pos = max(0.0, min(1.0, float(crossfader_pos)))
     # Odd decks (1, 3, ...) live on side A (left), even decks (2, 4, ...) live on side B (right).
     is_left = (deck_index % 2) == 1
-    if is_left:
-        return max(0.0, min(1.0, (1.0 - pos) * 2.0)) if pos > 0.5 else 1.0
-    return max(0.0, min(1.0, pos * 2.0)) if pos < 0.5 else 1.0
+    side_gain = 1.0 - pos if is_left else pos
+    return min(1.0, side_gain * 2.0)
 
 
 def combine_fader_levels(channel_fader, crossfader_pos, deck_index, total_decks):
@@ -478,6 +477,7 @@ def _focus_window(hwnd):
     user32.BringWindowToTop.restype = wintypes.BOOL
     user32.SetForegroundWindow.argtypes = [wintypes.HWND]
     user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.GetForegroundWindow.restype = wintypes.HWND
     kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
     if user32.IsIconic(hwnd):
@@ -496,7 +496,7 @@ def _focus_window(hwnd):
     finally:
         if attached:
             user32.AttachThreadInput(current_tid, target_tid, False)
-    return True
+    return user32.GetForegroundWindow() == hwnd
 
 
 def _send_combo(*keys):
@@ -593,9 +593,19 @@ def send_track_to_rekordbox(
             "copied": copied,
             "message": "Rekordbox ist nicht geöffnet. Suchtext wurde in die Zwischenablage kopiert.",
         }
-    focus_fn(hwnd)
+    if not focus_fn(hwnd):
+        return {
+            "ok": False,
+            "reason": "focus_failed",
+            "action": action,
+            "deck": None,
+            "query": clean_query,
+            "path": file_path,
+            "copied": copied,
+            "message": "Das Rekordbox-Fenster konnte nicht aktiviert werden.",
+        }
     sleep_fn(0.25)
-    key_sender("ctrl", "f")
+    key_sender("alt", "f")
     sleep_fn(0.12)
     key_sender("ctrl", "a")
     key_sender("back")

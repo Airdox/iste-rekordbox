@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const localPython = path.join(repoRoot, '.venv', 'Scripts', 'python.exe')
 
 function createElectronHarness({
   packaged = false,
@@ -151,7 +152,10 @@ function createElectronHarness({
   const origPlatform = process.platform
 
   Object.defineProperty(process, 'platform', { configurable: true, value: platform })
-  fs.existsSync = (target) => existsPaths.has(String(target)) || String(target).endsWith('preload.cjs') || origExists(target)
+  fs.existsSync = (target) => {
+    if (String(target) === localPython) return existsPaths.has(localPython)
+    return existsPaths.has(String(target)) || String(target).endsWith('preload.cjs') || origExists(target)
+  }
   fs.readFileSync = (target, enc) => {
     const key = String(target)
     if (savedFiles.has(key)) return savedFiles.get(key)
@@ -234,6 +238,14 @@ function createElectronHarness({
     setDestroyed: (v) => { destroyed = v },
   }
 }
+
+test('main.cjs uses the workspace interpreter when available', async () => {
+  const harness = createElectronHarness({ existsPaths: new Set([localPython]) })
+  await harness.whenReady()
+  const { exe, args } = harness.children[0].spawnArgs
+  assert.equal(exe, localPython)
+  assert.deepEqual(args, ['-u', path.join(repoRoot, 'backend', 'main.py')])
+})
 
 test('preload exposes strict IPC wrapper API', () => {
   const harness = createElectronHarness()

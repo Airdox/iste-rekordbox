@@ -85,9 +85,9 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     assert res_d1["ok"] is True
     assert res_d1["deck"] == 1
     assert focused == [12345]
-    assert sent_keys[0] == ("ctrl", "f")
+    assert sent_keys[0] == ("alt", "f")
     assert sent_keys == [
-        ("ctrl", "f"),
+        ("alt", "f"),
         ("ctrl", "a"),
         ("back",),
         ("ctrl", "v"),
@@ -111,7 +111,7 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     assert res_reveal["reason"] == "sent"
     assert res_reveal["deck"] is None
     assert sent_keys[-1] == ("down",)
-    assert sent_keys[0] == ("ctrl", "f")
+    assert sent_keys[0] == ("alt", "f")
 
     typed_fallback = []
     sent_keys.clear()
@@ -209,6 +209,7 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
             self.AttachThreadInput = attach_thread_input
             self.BringWindowToTop = bring_window_to_top
             self.SetForegroundWindow = set_foreground_window
+            self.GetForegroundWindow = lambda: 555
             self.GlobalAlloc = global_alloc
             self.GlobalLock = global_lock
             self.GlobalUnlock = global_unlock

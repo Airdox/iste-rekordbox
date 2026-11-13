@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import { cloneElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { type LiveStatus, type Results, type Track } from '../../src/api'
 import { FilterView } from '../../src/filter-view'
@@ -543,7 +544,7 @@ describe('filter-view.tsx', () => {
     const onRekordboxAction = vi.fn()
     const onExportFilteredM3u8 = vi.fn()
 
-    const { container, rerender } = render(
+    const filter = (
       <FilterView
         active
         presets={builtInPresets}
@@ -586,8 +587,9 @@ describe('filter-view.tsx', () => {
         setTracks={fiveSetTracks}
         setIds={new Set(['t1'])}
         onOpenSetBuilder={onOpenSetBuilder}
-      />,
+      />
     )
+    const { container, rerender } = render(filter)
 
     fireEvent.change(container.querySelector('#presetSelect')!, { target: { value: 'techno' } })
     expect(onSelectPreset).toHaveBeenCalledWith('techno')
@@ -642,7 +644,15 @@ describe('filter-view.tsx', () => {
 
     // Header sort inside FilterView table
     fireEvent.click(within(screen.getByRole('columnheader', { name: 'Titel' })).getByRole('button'))
-    expect(onSortStagesChange).toHaveBeenCalled()
+    expect(onSortStagesChange).toHaveBeenLastCalledWith([
+      { id: 'bpm', desc: false },
+      { id: 'year', desc: true },
+      { id: 'title', desc: false },
+    ])
+    rerender(cloneElement(filter, { sortStages: [{ id: 'title', desc: true }] }))
+    fireEvent.click(within(screen.getByRole('columnheader', { name: 'Titel' })).getByRole('button'))
+    expect(onSortStagesChange).toHaveBeenLastCalledWith([{ id: 'title', desc: false }])
+    rerender(filter)
 
     // Queue pane remove & open SetBuilder + overflow badge
     expect(screen.getByText('+ 1 weitere im Set-Builder')).toBeInTheDocument()
@@ -804,11 +814,17 @@ describe('set-view.tsx & hardware-modal.tsx', () => {
 
     const row0 = screen.getByText('Midnight Pulse').closest('.setrow')!
     const row1 = screen.getByText('Solar Drift').closest('.setrow')!
+    onMoveTrack.mockClear()
+    fireEvent.drop(row1)
+    expect(onMoveTrack).not.toHaveBeenCalled()
+    fireEvent.dragStart(row0)
+    fireEvent.drop(row0)
+    expect(onMoveTrack).not.toHaveBeenCalled()
     fireEvent.dragStart(row0)
     fireEvent.dragOver(row1)
     fireEvent.dragLeave(row1)
     fireEvent.drop(row1)
-    expect(onMoveTrack).toHaveBeenCalledWith(0, 1)
+    expect(onMoveTrack).toHaveBeenCalledExactlyOnceWith(0, 1)
     fireEvent.dragEnd(row0)
 
     rerender(

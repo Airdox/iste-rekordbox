@@ -35,8 +35,8 @@ npm run test:ui
 npm run package:win
 ```
 
-Die kombinatorische Suite vergleicht jede Abfrage mit einer unabhängigen Python-Berechnung. Sie protokolliert die Anzahl der Kombinationen, die Wandzeit sowie Überschreitungen des 50-ms-Ziels. Für die Prüfung der lokalen Originaldateien die Umgebungsvariable `CUEPOINT_VERIFY_REAL=1` vor dem Start von pytest setzen. Der Electron-Test verwendet ein eigenes Profil und die synthetische Testbibliothek. Mit `CUEPOINT_BENCHMARK_UI=1` misst er zusätzlich die Zeit zwischen Scroll-Frames.
+Die kombinatorische Suite vergleicht jede Abfrage mit einer unabhängigen Python-Berechnung. Sie schreibt die Anzahl der geprüften Fälle und die unbereinigten Laufzeiten nach `reports/combinatorial-metrics.json`. Der Electron-Test verwendet standardmäßig ein eigenes Profil und die synthetische Testbibliothek. Mit `CUEPOINT_BENCHMARK_UI=1` misst er zusätzlich die Zeit zwischen Scroll-Frames.
 
-Für den lokalen Live-Test im Electron-Test zusätzlich zu `CUEPOINT_VERIFY_REAL=1` auch `CUEPOINT_VERIFY_LIVE_REAL=1` setzen und einen Track in Rekordbox abspielen. Der Test klickt auf **Live Match** und berechnet die erwarteten Treffer unabhängig aus der echten Bibliothek.
+Die [Freigabeprüfung](docs/quality-gate.md) beschreibt die Nachweise für CI, das Windows-Paket und die interaktive Rekordbox-Abnahme.
 
 Die Implementierung verwendet die [Camelot-Farben und Tonartbeziehungen von Mixed In Key](https://mixedinkey.com/camelot-wheel/), das [Rekordbox-Schema aus pyrekordbox](https://github.com/dylanljones/pyrekordbox) und die [Statuspaket-Dokumentation von Deep Symmetry](https://djl-analysis.deepsymmetry.org/djl-analysis/vcdj.html).

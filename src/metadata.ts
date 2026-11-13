@@ -35,7 +35,8 @@ export type FilterPreset = {
   custom?: boolean
 }
 
-export const metadata = new Map<MetadataId, Field>(fields.map((field) => [field.id, field]))
+export const metadata = new Map<MetadataId, Field>()
+for (const field of fields) metadata.set(field.id, field)
 export const defaultColumns: MetadataId[] = ['title', 'artist', 'bpm', 'key', 'genre', 'rating']
 export const opsText: Record<Operator, string> = {
   contains: 'enthält',

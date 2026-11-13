@@ -1214,5 +1214,3 @@ def test_backend_ast_mutation_killer_suite():
     d_m_off = {"deck": 1, "trackId": "t1", "playing": True, "fader": 1.0, "master": False}
     d_m_on = {"deck": 2, "trackId": "t2", "playing": True, "fader": 1.0, "master": True}
     assert core._select_anchor([d_m_off, d_m_on], "pro-dj-link", None)["deck"] == 2
-
-
