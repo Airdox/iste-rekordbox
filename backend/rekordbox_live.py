@@ -35,7 +35,9 @@ def _rekordbox_window():
     try:
         user32.GetThreadDesktop.argtypes = [wintypes.DWORD]
         user32.GetThreadDesktop.restype = wintypes.HANDLE
-        user32.GetUserObjectInformationW.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        user32.GetUserObjectInformationW.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)
+        ]
         user32.GetUserObjectInformationW.restype = wintypes.BOOL
         user32.OpenDesktopW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         user32.OpenDesktopW.restype = wintypes.HANDLE

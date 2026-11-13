@@ -176,6 +176,29 @@ async function assertTooltips(page, selectors, contextLabel) {
   assert.deepEqual(missing, [], `Fehlende/leere Tooltips in ${contextLabel}: ${JSON.stringify(missing)}`)
 }
 
+async function verifyToast(page, actionFn, expectedPattern = /rekordbox/i) {
+  await actionFn()
+  const toast = page.locator('#toast')
+  await toast.waitFor({ state: 'visible', timeout: 6000 })
+  const patStr = expectedPattern instanceof RegExp ? expectedPattern.source : String(expectedPattern)
+  await page.waitForFunction(
+    (p) => {
+      const el = document.querySelector('#toast')
+      if (!el) return false
+      const txt = (el.textContent || '').trim()
+      return new RegExp(p, 'i').test(txt) && txt.length > 3
+    },
+    patStr,
+    { timeout: 6000 },
+  )
+  const text = (await toast.innerText()).trim()
+  assert.ok(
+    new RegExp(patStr, 'i').test(text),
+    `Toast-Text '${text}' matcht nicht '${expectedPattern}'`,
+  )
+  return text
+}
+
 async function run() {
   const real = process.env.CUEPOINT_VERIFY_REAL === '1'
   const fixture = path.resolve('build', 'synthetic_test_master.db')
@@ -457,21 +480,94 @@ async function run() {
     }
     await assertVisualLayout(page, '#view-live')
 
-    // Click Deck A transport button -> verify toast feedback & keep selected row highlight
-    await page.locator('#liveInspector button', { hasText: 'Deck A' }).click()
-    await page.locator('#toast').waitFor({ state: 'visible' })
-    const transportToast = (await page.locator('#toast').innerText()).trim()
-    assert.ok(transportToast.length > 5, `Erwarteter Transport-Toast leer: '${transportToast}'`)
-    const selectedAfterDeckA = await page.locator('#view-live .track-row.selected').count()
-    assert.equal(selectedAfterDeckA, 1, 'Ausgewählte Zeile muss nach Deck-A-Klick markiert bleiben')
+    // 1. Live-Inspector Transport Buttons & Selection Persistence:
+    // - "In Rekordbox" (reveal) -> Toast enthält /rekordbox/i
+    await verifyToast(
+      page,
+      () => page.locator('#liveInspector button', { hasText: 'In Rekordbox' }).click(),
+      /rekordbox/i,
+    )
+    assert.equal(await page.locator('#view-live .track-row.selected').count(), 1, 'Zeile muss nach In Rekordbox markiert bleiben')
+
+    // - "Deck A" (deck1) -> Toast enthält /rekordbox/i
+    await verifyToast(
+      page,
+      () => page.locator('#liveInspector button', { hasText: 'Deck A' }).click(),
+      /rekordbox/i,
+    )
+    assert.equal(await page.locator('#view-live .track-row.selected').count(), 1, 'Zeile muss nach Deck A markiert bleiben')
+
+    // - "Deck B" (deck2) -> Toast enthält /rekordbox/i
+    await verifyToast(
+      page,
+      () => page.locator('#liveInspector button', { hasText: 'Deck B' }).click(),
+      /rekordbox/i,
+    )
+    assert.equal(await page.locator('#view-live .track-row.selected').count(), 1, 'Zeile muss nach Deck B markiert bleiben')
     await assertVisualLayout(page, '#view-live')
     await capture(page, captureDir, '05-transport-and-set.png')
 
-    // Open Find Modal via Details button -> verify modal & transport action
+    // 2. Kontextmenü auf Track-Zeile (Rechtsklick):
+    // - Rechtsklick auf Track-Zeile öffnet .context-menu -> "↗ In Rekordbox anzeigen"
+    await firstRow.click({ button: 'right' })
+    await page.locator('.context-menu').waitFor({ state: 'visible' })
+    await verifyToast(
+      page,
+      () => page.locator('.context-menu button.context-action', { hasText: 'In Rekordbox anzeigen' }).click(),
+      /rekordbox/i,
+    )
+    await page.locator('.context-menu').waitFor({ state: 'detached' })
+
+    // - Rechtsklick erneut -> "▶ In Deck A laden"
+    await firstRow.click({ button: 'right' })
+    await page.locator('.context-menu').waitFor({ state: 'visible' })
+    await verifyToast(
+      page,
+      () => page.locator('.context-menu button.context-action', { hasText: 'In Deck A laden' }).click(),
+      /rekordbox/i,
+    )
+    await page.locator('.context-menu').waitFor({ state: 'detached' })
+
+    // - Rechtsklick erneut -> "▶ In Deck B laden"
+    await firstRow.click({ button: 'right' })
+    await page.locator('.context-menu').waitFor({ state: 'visible' })
+    await verifyToast(
+      page,
+      () => page.locator('.context-menu button.context-action', { hasText: 'In Deck B laden' }).click(),
+      /rekordbox/i,
+    )
+    await page.locator('.context-menu').waitFor({ state: 'detached' })
+
+    // 3. Find-in-Rekordbox Modal (über "Details" und Kontextmenü "Details / Explorer & Kopieren"):
     await page.locator('#liveInspector button', { hasText: 'Details' }).click()
+    const findModal = page.locator('.modal')
+    await findModal.waitFor({ state: 'visible' })
     await page.locator('.modal h2', { hasText: 'Track in Rekordbox finden' }).waitFor()
-    await page.locator('.modal button', { hasText: 'In Rekordbox anzeigen' }).click()
-    await page.locator('#toast').waitFor({ state: 'visible' })
+
+    // Prüfe die Buttons: "In Rekordbox anzeigen", "Deck A laden", "Deck B laden", "Suchtext kopieren"
+    for (const bName of ['In Rekordbox anzeigen', 'Deck A laden', 'Deck B laden', 'Suchtext kopieren']) {
+      await findModal.locator('button', { hasText: bName }).waitFor({ state: 'visible' })
+    }
+
+    // Klicke "Suchtext kopieren" -> Toast-Feedback verifizieren
+    await verifyToast(
+      page,
+      () => findModal.locator('button', { hasText: 'Suchtext kopieren' }).click(),
+      /zwischenablage/i,
+    )
+    await findModal.waitFor({ state: 'detached' })
+
+    // Find-Modal über Kontextmenü öffnen -> Klicke "Deck B laden" und verifiziere Toast-Feedback
+    await firstRow.click({ button: 'right' })
+    await page.locator('.context-menu').waitFor({ state: 'visible' })
+    await page.locator('.context-menu button.context-action', { hasText: 'Details / Explorer & Kopieren' }).click()
+    await findModal.waitFor({ state: 'visible' })
+    await verifyToast(
+      page,
+      () => findModal.locator('button', { hasText: 'Deck B laden' }).click(),
+      /rekordbox/i,
+    )
+    await findModal.waitFor({ state: 'detached' })
 
     // Add 1st track to Set from Live-Match
     await firstRow.locator('button[title="Zum Set hinzufügen"]').click()
@@ -561,10 +657,36 @@ async function run() {
     await page.locator('.sidenav button', { hasText: 'Peak Automation Test' }).waitFor()
 
     // Select a row in Filter-Studio and verify #filterInspector transport buttons
-    await filterGrid.locator('[data-track-id]').first().click()
+    const filterFirstRow = filterGrid.locator('[data-track-id]').first()
+    await filterFirstRow.click()
+    const filterSelectedBg = await filterFirstRow.evaluate((el) => getComputedStyle(el).backgroundColor)
+    assert.equal(filterSelectedBg, 'rgb(37, 81, 134)')
+
     for (const label of ['In Rekordbox', 'Deck A', 'Deck B']) {
       await page.locator('#filterInspector button', { hasText: label }).waitFor({ state: 'visible' })
     }
+
+    // 4. Filter-Studio (#filterInspector) Transport-Klicks & Toast-Feedback:
+    await verifyToast(
+      page,
+      () => page.locator('#filterInspector button', { hasText: 'In Rekordbox' }).click(),
+      /rekordbox/i,
+    )
+    assert.equal(await page.locator('#view-filter .track-row.selected').count(), 1, 'Zeile muss markiert bleiben')
+
+    await verifyToast(
+      page,
+      () => page.locator('#filterInspector button', { hasText: 'Deck A' }).click(),
+      /rekordbox/i,
+    )
+    assert.equal(await page.locator('#view-filter .track-row.selected').count(), 1, 'Zeile muss markiert bleiben')
+
+    await verifyToast(
+      page,
+      () => page.locator('#filterInspector button', { hasText: 'Deck B' }).click(),
+      /rekordbox/i,
+    )
+    assert.equal(await page.locator('#view-filter .track-row.selected').count(), 1, 'Zeile muss markiert bleiben')
 
     // Open Sort Cascade Designer + verify all Filter-Studio tooltips
     await page.locator('#toggleSortDesigner').click()
@@ -684,7 +806,7 @@ async function run() {
 
     assert.deepEqual(errors, [])
     console.log(
-      `Electron Technical & Visual E2E OK: 15.500 Tracks, ${renderedRows} DOM-Zeilen, Jahr-Sortierung (↓/↑ + '—' am Ende), Live-Filter, Tooltips, Transport-Buttons, Handover-Modal & Hardware-Modal geprüft.`,
+      `Electron Technical & Visual E2E OK: 15.500 Tracks, ${renderedRows} DOM-Zeilen, Jahr-Sortierung (↓/↑ + '—' am Ende), Live-Filter, Tooltips, Rekordbox-Handover (Live-Inspector, Kontextmenü, Find-Modal & Filter-Studio), Handover-Modal & Hardware-Modal geprüft.`,
     )
   } finally {
     await app.close()
