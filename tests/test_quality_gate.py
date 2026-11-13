@@ -24,6 +24,7 @@ def evidence(tmp_path, monkeypatch):
     for stage, files in gate.ARTIFACTS.items():
         if stage != "rekordbox":
             gate.record_junit(reports / files[0], stage, 0)
+    (reports / "playlist-export-evidence.zip").write_bytes(b"export evidence")
     totals = {"covered_lines": 20, "num_statements": 20, "covered_branches": 20, "num_branches": 20}
     gate.write_json(reports / "coverage-python/coverage.json", {
         "meta": {"branch_coverage": True},

@@ -32,6 +32,7 @@ function makeMockBridge(overrides?: {
       rating: 4,
       seconds: 300,
       year: 2023,
+      path: 'E:/Music/velvet.mp3',
     },
   ]
 

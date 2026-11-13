@@ -36,19 +36,29 @@ def test_anchor_uses_best_playing_deck_when_all_faders_are_inaudible():
     assert core._last_anchor == 2
 
 
-def test_rekordbox_reveal_pastes_query_when_unicode_typing_fails():
+def test_rekordbox_reveal_uses_unicode_when_clipboard_is_unavailable():
     events = []
     result = send_track_to_rekordbox(
         "reveal", " Test Track ",
         window_fn=lambda: 123,
-        clipboard_fn=lambda query: events.append(("clipboard", query)) or True,
-        focus_fn=lambda hwnd: events.append(("focus", hwnd)),
+        clipboard_fn=lambda query: events.append(("clipboard", query)) or False,
+        focus_fn=lambda hwnd: events.append(("focus", hwnd)) or True,
         key_sender=lambda *keys: events.append(keys),
-        type_sender=lambda query: events.append(("type", query)) or False,
+        type_sender=lambda query: events.append(("type", query)) or True,
         sleep_fn=lambda _: None,
     )
-    assert result["ok"] and result["copied"] and result["deck"] is None
+    assert result["ok"] and not result["copied"] and result["deck"] is None
     assert events == [
         ("clipboard", "Test Track"), ("focus", 123), ("alt", "f"), ("ctrl", "a"), ("back",),
-        ("type", "Test Track"), ("ctrl", "v"), ("enter",), ("down",),
+        ("type", "Test Track"), ("enter",), ("down",),
     ]
+
+
+def test_rekordbox_transport_sends_no_keys_when_focus_fails():
+    sent = []
+    result = send_track_to_rekordbox(
+        "deck1", "Test Track", window_fn=lambda: 123, clipboard_fn=lambda _: True,
+        focus_fn=lambda _: False, key_sender=lambda *keys: sent.append(keys), sleep_fn=lambda _: None,
+    )
+    assert result["reason"] == "focus_failed" and not result["ok"] and result["deck"] is None
+    assert sent == []

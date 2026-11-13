@@ -37,7 +37,7 @@ ARTIFACTS = {
     "electron": ("electron-junit.xml", "coverage-electron/coverage-summary.json",
                  "coverage-electron/coverage-final.json"),
     "combinatorial": ("combinatorial-junit.xml", "combinatorial-metrics.json"),
-    "ui": ("ui-junit.xml",),
+    "ui": ("ui-junit.xml", "playlist-export-evidence.zip"),
     "mutation-frontend": ("mutation-frontend-junit.xml", "mutation-frontend/stryker-report.json"),
     "mutation-python": ("mutation-python-junit.xml", "mutation-python/mutation-report.json"),
     "windows": ("windows-junit.xml", "windows-package.json"),

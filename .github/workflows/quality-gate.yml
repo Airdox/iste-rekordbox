@@ -136,9 +136,6 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
       - run: npm run build
       - run: python tests/generate_synthetic_db.py
-      - env:
-          CUEPOINT_CAPTURE_DIR: reports/ui-screenshots
-        run: python scripts/quality_gate.py run ui -- npm run test:ui
       - name: Verify playable Cuepoint playlist export with Playwright
         env:
           CUEPOINT_TEST_PYTHON: python
@@ -147,6 +144,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Compress-Archive -Path reports/playlist-export/*.png,reports/playlist-export/*.m3u8,reports/playlist-export/fixture.json `
             -DestinationPath reports/playlist-export-evidence.zip
+      - env:
+          CUEPOINT_CAPTURE_DIR: reports/ui-screenshots
+        run: python scripts/quality_gate.py run ui -- npm run test:ui
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:

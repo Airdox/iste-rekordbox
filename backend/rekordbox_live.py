@@ -477,6 +477,7 @@ def _focus_window(hwnd):
     user32.BringWindowToTop.restype = wintypes.BOOL
     user32.SetForegroundWindow.argtypes = [wintypes.HWND]
     user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.GetForegroundWindow.restype = wintypes.HWND
     kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
     if user32.IsIconic(hwnd):
@@ -495,7 +496,7 @@ def _focus_window(hwnd):
     finally:
         if attached:
             user32.AttachThreadInput(current_tid, target_tid, False)
-    return True
+    return user32.GetForegroundWindow() == hwnd
 
 
 def _send_combo(*keys):
@@ -592,9 +593,19 @@ def send_track_to_rekordbox(
             "copied": copied,
             "message": "Rekordbox ist nicht geöffnet. Suchtext wurde in die Zwischenablage kopiert.",
         }
-    focus_fn(hwnd)
+    if not focus_fn(hwnd):
+        return {
+            "ok": False,
+            "reason": "focus_failed",
+            "action": action,
+            "deck": None,
+            "query": clean_query,
+            "path": file_path,
+            "copied": copied,
+            "message": "Das Rekordbox-Fenster konnte nicht aktiviert werden.",
+        }
     sleep_fn(0.25)
-    key_sender("ctrl", "f")
+    key_sender("alt", "f")
     sleep_fn(0.12)
     key_sender("ctrl", "a")
     key_sender("back")
