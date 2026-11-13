@@ -173,6 +173,8 @@ describe('api.ts', () => {
 
   it('computes relatedKeys and harmonicTransition accurately including wrap-around 1/12', () => {
     expect(relatedKeys('bad')).toEqual([])
+    expect(relatedKeys('8A_invalid')).toEqual([])
+    expect(relatedKeys('invalid_8A')).toEqual([])
     expect(relatedKeys(' 12a ')).toEqual(['11A', '12A', '1A', '12B'])
     expect(relatedKeys('1B')).toEqual(['12B', '1B', '2B', '1A'])
 

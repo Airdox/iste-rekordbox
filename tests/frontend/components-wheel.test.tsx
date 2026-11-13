@@ -139,6 +139,26 @@ describe('camelot-wheel.tsx', () => {
     expect(screen.getByText('8A', { selector: 'text.wheelcentertext' })).toBeInTheDocument()
     expect(screen.getByText('Aktive Keys: 8A, 9A, 4B')).toBeInTheDocument()
 
+    // SVG geometry checks (kills all pt(), pathWedge(), angles and radius mutants in camelot-wheel.tsx)
+    const allPaths = container.querySelectorAll('.wheel path')
+    expect(allPaths).toHaveLength(24)
+
+    const seg1B = container.querySelector('g[data-wheel-key="1B"]')!
+    const d1B = seg1B.querySelector('path')?.getAttribute('d') ?? ''
+    expect(d1B).toMatch(/^M160\.\d+ 9\.\d+ A151 151 0 0 1 234\.\d+ 28\.\d+ L216\.\d+ 60\.\d+ A114 114 0 0 0 160\.\d+ 46\.\d+Z$/)
+
+    const seg1A = container.querySelector('g[data-wheel-key="1A"]')!
+    const d1A = seg1A.querySelector('path')?.getAttribute('d') ?? ''
+    expect(d1A).toMatch(/^M160\.\d+ 47\.\d+ A113 113 0 0 1 215\.\d+ 61\.\d+ L194\.\d+ 99\.\d+ A70 70 0 0 0 160\.\d+ 90\.\d+Z$/)
+
+    const text1B = seg1B.querySelector('text')!
+    expect(Number(text1B.getAttribute('x'))).toBeCloseTo(194.16, 1)
+    expect(Number(text1B.getAttribute('y'))).toBeCloseTo(32.49, 1)
+
+    const text1A = seg1A.querySelector('text')!
+    expect(Number(text1A.getAttribute('x'))).toBeCloseTo(183.55, 1)
+    expect(Number(text1A.getAttribute('y'))).toBeCloseTo(72.10, 1)
+
     // Segment <title>, aria-label, path styling and class assertions across all 4 states
     const seg8A = container.querySelector('g[data-wheel-key="8A"]')!
     expect(seg8A).toHaveAttribute('aria-label', '8A, aktuell, harmonisch kompatibel, als Filter gewählt')
@@ -221,6 +241,7 @@ describe('camelot-wheel.tsx', () => {
     // Quick chips: title & active/current classes + click
     const chip8A = container.querySelector('.keychip[data-key="8A"]')!
     expect(chip8A).toHaveClass('active', 'current')
+    expect(chip8A.className).toBe('keychip active current')
     expect(chip8A).toHaveAttribute(
       'title',
       '8A (aktuelle Tonart) – Klick: einzeln · Strg+Klick: hinzufügen/abwählen',

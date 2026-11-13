@@ -1,5 +1,7 @@
 import io
 import json
+import math
+import numpy as np
 import runpy
 import sqlite3
 import sys
@@ -826,7 +828,8 @@ def test_main_fader_disambiguation_hysteresis_and_ipc(tmp_path, monkeypatch):
          "key": "9A", "seconds": 310, "playing": True, "master": True},
     ]
     assert core.status({"deck": 1})["anchor"] == 1
-    assert core.status({})["anchor"] in (1, 2)
+    core._last_anchor = None
+    assert core.status({})["anchor"] == 2
     playback.decks[0]["playing"] = False
     playback.decks[1]["playing"] = False
     assert core.status({})["anchor"] is None
@@ -975,6 +978,9 @@ def test_backend_ast_mutation_killer_suite():
     assert lib_mod._parse_range("120..140") == (120.0, 140.0)
     assert lib_mod._parse_range("140..120") == (120.0, 140.0)
     assert lib_mod._parse_range("120..120") == (120.0, 120.0)
+    rng_zero = lib_mod._parse_range("0..-0")
+    assert rng_zero == (0.0, -0.0)
+    assert math.copysign(1.0, rng_zero[0]) == 1.0
     assert lib_mod._parse_range("120 bis 140") == (120.0, 140.0)
     assert lib_mod._parse_range("120 - 140") == (120.0, 140.0)
     assert lib_mod._parse_range("120;140") == (120.0, 140.0)
@@ -1084,6 +1090,18 @@ def test_backend_ast_mutation_killer_suite():
         assert [r["id"] for r in s_bpm_desc["rows"]][:3] == ["3", "1", "2"]
         s_id_first = lib.query({"sorts": [{"id": "id", "desc": False}, {"id": "bpm", "desc": True}]})
         assert [r["id"] for r in s_id_first["rows"]] == ["1", "2", "3", "4"]
+
+        # multi-stage non-id where stage 1 breaks tie in stage 0 (kills len(stages) == 1 Eq -> NotEq)
+        # Tracks 1 & 3 both have key 8A; track 1 has bpm 130, track 3 has bpm 135
+        s_key_bpm_desc = lib.query({"sorts": [{"id": "key", "desc": False}, {"id": "bpm", "desc": True}]})
+        assert [r["id"] for r in s_key_bpm_desc["rows"]][:2] == ["3", "1"]
+        s_key_bpm_asc = lib.query({"sorts": [{"id": "key", "desc": False}, {"id": "bpm", "desc": False}]})
+        assert [r["id"] for r in s_key_bpm_asc["rows"]][:2] == ["1", "3"]
+
+        # _sort_positions: np.lexsort with input permutation (kills In -> NotIn on line 410)
+        arr_idx = np.array([2, 0, 1])
+        sorted_pos = lib._sort_positions(arr_idx, {"sorts": [{"id": "comment"}, {"id": "album"}]})
+        assert list(sorted_pos) == [0, 1, 2]
     finally:
         lib.close()
 
@@ -1114,6 +1132,7 @@ def test_backend_ast_mutation_killer_suite():
     assert rb_live._progress(last, "Diff", "Artist B", 10.5, 1.5) is False
     assert rb_live._progress(last, "Track A", "Diff", 10.5, 1.5) is False
     assert rb_live._progress(last, "Track A", "Artist B", 10.5, 1.5) is True
+    assert rb_live._progress(last, "Track A", "Artist B", 10.8, 1.2) is True
     assert rb_live._progress(last, "Track A", "Artist B", 10.02, 1.5) is False
     assert rb_live._progress(last, "Track A", "Artist B", 15.0, 1.5) is False
     assert rb_live._progress(last, "Track A", "Artist B", 10.5, 0.5) is False
@@ -1131,6 +1150,12 @@ def test_backend_ast_mutation_killer_suite():
     inaudible = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.02, "master": False}
     audible = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.8, "master": False}
     assert core._select_anchor([inaudible, audible], "rekordbox", None)["deck"] == 2
+
+    # _select_anchor: fader == 0.05 stripped in rekordbox mode (kills Gt -> GtE on line 117)
+    core._last_anchor = 1
+    d_fader_05 = {"deck": 1, "trackId": "t1", "playing": True, "fader": 0.05, "master": False}
+    d_other_08 = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.08, "master": False}
+    assert core._select_anchor([d_fader_05, d_other_08], "rekordbox", None)["deck"] == 2
 
     # Sticky anchor: challenger fader beat (diff >= 0.10)
     core._last_anchor = 1
@@ -1178,4 +1203,14 @@ def test_backend_ast_mutation_killer_suite():
     d_master_low_diff = {"deck": 2, "trackId": "t2", "playing": True, "fader": 0.83, "master": True}
     assert core._select_anchor([deck_prev, d_master_low_diff], "rekordbox", None)["deck"] == 2
 
+    # _select_anchor: fallback min tiebreakers when prev is None (kills remove unary not on lines 149 & 150)
+    core._last_anchor = None
+    # not playing tiebreaker: playing deck 2 must be chosen over paused deck 1 at equal faders
+    d_p_off = {"deck": 1, "trackId": "t1", "playing": False, "fader": 1.0, "master": False}
+    d_p_on = {"deck": 2, "trackId": "t2", "playing": True, "fader": 1.0, "master": False}
+    assert core._select_anchor([d_p_off, d_p_on], "pro-dj-link", None)["deck"] == 2
 
+    # not master tiebreaker: master deck 2 must be chosen over non-master deck 1 at equal faders
+    d_m_off = {"deck": 1, "trackId": "t1", "playing": True, "fader": 1.0, "master": False}
+    d_m_on = {"deck": 2, "trackId": "t2", "playing": True, "fader": 1.0, "master": True}
+    assert core._select_anchor([d_m_off, d_m_on], "pro-dj-link", None)["deck"] == 2

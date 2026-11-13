@@ -33,6 +33,15 @@ def _rekordbox_window():
 
     # Attach thread desktop to interactive default if needed
     try:
+        user32.GetThreadDesktop.argtypes = [wintypes.DWORD]
+        user32.GetThreadDesktop.restype = wintypes.HANDLE
+        user32.GetUserObjectInformationW.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        user32.GetUserObjectInformationW.restype = wintypes.BOOL
+        user32.OpenDesktopW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        user32.OpenDesktopW.restype = wintypes.HANDLE
+        user32.SetThreadDesktop.argtypes = [wintypes.HANDLE]
+        user32.SetThreadDesktop.restype = wintypes.BOOL
+
         hdesk_cur = user32.GetThreadDesktop(kernel32.GetCurrentThreadId())
         buf = ctypes.create_unicode_buffer(128)
         user32.GetUserObjectInformationW(hdesk_cur, 2, buf, 128, None)
@@ -455,6 +464,20 @@ def _focus_window(hwnd):
         return False
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsIconic.restype = wintypes.BOOL
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindow.restype = wintypes.BOOL
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+    user32.AttachThreadInput.restype = wintypes.BOOL
+    user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    user32.BringWindowToTop.restype = wintypes.BOOL
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
+    kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         time.sleep(0.3)
@@ -570,14 +593,15 @@ def send_track_to_rekordbox(
         }
     focus_fn(hwnd)
     sleep_fn(0.25)
-    key_sender("alt", "f")
+    key_sender("ctrl", "f")
     sleep_fn(0.12)
     key_sender("ctrl", "a")
     key_sender("back")
     sleep_fn(0.06)
-    typed = bool(type_sender and type_sender(clean_query))
-    if not typed:
+    if copied:
         key_sender("ctrl", "v")
+    elif type_sender:
+        type_sender(clean_query)
     sleep_fn(0.24)
     key_sender("enter")
     sleep_fn(0.18)

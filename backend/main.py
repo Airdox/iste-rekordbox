@@ -148,7 +148,6 @@ class Core:
                     -round(level(d), 2),
                     not d["playing"],
                     not d.get("master"),
-                    d["deck"] != self._last_anchor,
                     d["deck"],
                 ),
             )
