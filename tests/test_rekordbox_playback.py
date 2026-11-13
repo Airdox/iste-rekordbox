@@ -85,7 +85,16 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     assert res_d1["ok"] is True
     assert res_d1["deck"] == 1
     assert focused == [12345]
-    assert sent_keys[-1] == ("shift", "left")
+    assert sent_keys[0] == ("ctrl", "f")
+    assert sent_keys == [
+        ("ctrl", "f"),
+        ("ctrl", "a"),
+        ("back",),
+        ("ctrl", "v"),
+        ("enter",),
+        ("down",),
+        ("shift", "left"),
+    ]
 
     sent_keys.clear()
     res_reveal = rbl.send_track_to_rekordbox(
@@ -102,6 +111,23 @@ def test_send_track_to_rekordbox_and_core_transport(monkeypatch):
     assert res_reveal["reason"] == "sent"
     assert res_reveal["deck"] is None
     assert sent_keys[-1] == ("down",)
+    assert sent_keys[0] == ("ctrl", "f")
+
+    typed_fallback = []
+    sent_keys.clear()
+    res_fallback = rbl.send_track_to_rekordbox(
+        "reveal",
+        "Fallback Query",
+        window_fn=lambda: 999,
+        clipboard_fn=lambda text: False,
+        focus_fn=lambda hwnd: True,
+        key_sender=lambda *keys: sent_keys.append(keys) or True,
+        type_sender=lambda text: typed_fallback.append(text) or True,
+        sleep_fn=lambda _: None,
+    )
+    assert res_fallback["ok"] is True
+    assert typed_fallback == ["Fallback Query"]
+    assert ("ctrl", "v") not in sent_keys
 
     sent_keys.clear()
     res_d2 = rbl.send_track_to_rekordbox(
