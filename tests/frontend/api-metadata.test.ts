@@ -251,7 +251,7 @@ describe('api.ts', () => {
     const csvBlob = createUrlSpy.mock.calls[0][0] as Blob
     expect(csvBlob.type).toBe('text/csv;charset=utf-8')
     expect(csvBlob.size).toBe(new TextEncoder().encode(csv).length)
-    expect(new Uint8Array(await csvBlob.arrayBuffer())).toEqual(new TextEncoder().encode(csv))
+    expect(Array.from(new Uint8Array(await csvBlob.arrayBuffer()))).toEqual(Array.from(new TextEncoder().encode(csv)))
     expect(createdLinks[0].download).toBe('airdox-setliste.csv')
     expect(createdLinks[0].href).toBe('blob:test-csv')
     expect(clickSpy).toHaveBeenCalledTimes(1)
